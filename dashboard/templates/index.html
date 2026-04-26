@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dhan Quant Trading Platform</title>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* Reset & variables                                                   */
+    /* ------------------------------------------------------------------ */
+    :root {
+      --bg:          #0b0f1e;
+      --bg-card:     #111827;
+      --bg-card2:    #162032;
+      --bg-input:    #0f1829;
+      --border:      #1e2d45;
+      --border-light:#2a3d5a;
+      --green:       #10d4a8;
+      --green-dim:   #0a8a6e;
+      --red:         #f05070;
+      --blue:        #3b82f6;
+      --purple:      #a855f7;
+      --orange:      #f59e0b;
+      --yellow:      #fbbf24;
+      --text:        #dde4f0;
+      --text-muted:  #6b7fa0;
+      --text-dim:    #8fa0be;
+      --radius:      10px;
+      --shadow:      0 4px 24px rgba(0,0,0,.45);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ------------------------------------------------------------------ */
+    /* Scrollbar                                                           */
+    /* ------------------------------------------------------------------ */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+    /* ------------------------------------------------------------------ */
+    /* Header                                                              */
+    /* ------------------------------------------------------------------ */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      height: 58px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,.5);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: .3px;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--green), var(--blue));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .header-status {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--text-muted);
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Nav tabs                                                            */
+    /* ------------------------------------------------------------------ */
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+    }
+    .nav-tab {
+      padding: 6px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all .15s;
+      border: 1px solid transparent;
+      background: none;
+    }
+    .nav-tab:hover  { color: var(--text); background: var(--bg-card2); }
+    .nav-tab.active {
+      color: var(--green);
+      background: rgba(16,212,168,.1);
+      border-color: rgba(16,212,168,.25);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Main layout                                                         */
+    /* ------------------------------------------------------------------ */
+    .main {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 28px 24px 60px;
+    }
+    .section { display: none; }
+    .section.active { display: block; }
+
+    /* ------------------------------------------------------------------ */
+    /* Section header                                                      */
+    /* ------------------------------------------------------------------ */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 22px;
+    }
+    .section-title {
+      font-size: 20px; font-weight: 700;
+    }
+    .section-sub {
+      font-size: 13px; color: var(--text-muted); margin-top: 2px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Strategy grid                                                       */
+    /* ------------------------------------------------------------------ */
+    .strategy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 18px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Strategy card                                                       */
+    /* ------------------------------------------------------------------ */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color .2s, box-shadow .2s;
+      overflow: hidden;
+    }
+    .card:hover { border-color: var(--border-light); box-shadow: var(--shadow); }
+    .card.enabled  { border-color: rgba(16,212,168,.3); }
+    .card.disabled { opacity: .7; }
+
+    .card-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-meta { flex: 1; min-width: 0; }
+    .card-name {
+      font-size: 15px; font-weight: 600;
+      color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-badges { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px; font-weight: 500;
+      border: 1px solid currentColor;
+    }
+    .badge-blue   { color: var(--blue);   background: rgba(59,130,246,.12); }
+    .badge-purple { color: var(--purple); background: rgba(168,85,247,.12); }
+    .badge-orange { color: var(--orange); background: rgba(245,158,11,.12); }
+    .badge-green  { color: var(--green);  background: rgba(16,212,168,.12); }
+    .badge-red    { color: var(--red);    background: rgba(240,80,112,.12); }
+
+    /* ------------------------------------------------------------------ */
+    /* Toggle switch                                                       */
+    /* ------------------------------------------------------------------ */
+    .toggle-wrap { flex-shrink: 0; margin-left: 12px; }
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 44px; height: 24px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: var(--border-light);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform .2s;
+    }
+    .toggle input:checked + .toggle-slider { background: var(--green); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+    .toggle-label {
+      font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 4px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Card body                                                           */
+    /* ------------------------------------------------------------------ */
+    .card-body { padding: 14px 18px; }
+    .card-desc { color: var(--text-dim); font-size: 13px; line-height: 1.55; }
+
+    .card-actions {
+      display: flex; gap: 8px;
+      padding: 0 18px 14px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn-ghost {
+      background: var(--bg-card2);
+      border-color: var(--border-light);
+      color: var(--text-dim);
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--blue); }
+    .btn-primary {
+      background: rgba(16,212,168,.15);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    .btn-primary:hover { background: rgba(16,212,168,.25); }
+    .btn-danger {
+      background: rgba(240,80,112,.1);
+      border-color: var(--red);
+      color: var(--red);
+    }
+    .btn-blue {
+      background: rgba(59,130,246,.15);
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+    .btn-blue:hover { background: rgba(59,130,246,.25); }
+    .btn:disabled {
+      opacity: .45; cursor: not-allowed;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Params editor panel                                                 */
+    /* ------------------------------------------------------------------ */
+    .params-panel {
+      display: none;
+      padding: 14px 18px 18px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-card2);
+    }
+    .params-panel.open { display: block; }
+    .params-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .param-field label {
+      display: block;
+      font-size: 11px; font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 5px;
+    }
+    .param-field input {
+      width: 100%;
+      padding: 7px 10px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .param-field input:focus { border-color: var(--blue); }
+    .params-save-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .save-msg {
+      font-size: 12px;
+      color: var(--green);
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    .save-msg.show { opacity: 1; }
+    .save-msg.error { color: var(--red); }
+
+    /* ------------------------------------------------------------------ */
+    /* Backtest section                                                    */
+    /* ------------------------------------------------------------------ */
+    .backtest-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .backtest-layout { grid-template-columns: 1fr; }
+    }
+
+    .form-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+    .form-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 18px; }
+    .form-row { margin-bottom: 16px; }
+    .form-row label {
+      display: block;
+      font-size: 11px; font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .form-row input, .form-row select {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+      appearance: none;
+    }
+    .form-row input:focus, .form-row select:focus { border-color: var(--blue); }
+    select option { background: var(--bg-card); }
+    .form-hint {
+      font-size: 11px; color: var(--text-muted); margin-top: 5px;
+    }
+
+    .strategy-preview {
+      background: var(--bg-card2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .strategy-preview .preview-name { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .strategy-preview .preview-param { color: var(--text-muted); }
+    .strategy-preview .preview-param span { color: var(--text-dim); }
+
+    /* Run button */
+    .btn-run {
+      width: 100%;
+      padding: 11px;
+      background: linear-gradient(135deg, var(--green-dim), rgba(16,212,168,.3));
+      border: 1px solid var(--green);
+      border-radius: 7px;
+      color: var(--green);
+      font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-run:hover { background: rgba(16,212,168,.3); }
+    .btn-run:disabled { opacity: .4; cursor: not-allowed; }
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(16,212,168,.3);
+      border-top-color: var(--green);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Results area */
+    .results-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .results-header {
+      padding: 16px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .results-header h3 { font-size: 15px; font-weight: 600; }
+    .results-meta { font-size: 12px; color: var(--text-muted); }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .metric {
+      background: var(--bg-card);
+      padding: 16px 18px;
+    }
+    .metric-label {
+      font-size: 11px; font-weight: 500;
+      color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .metric-value {
+      font-size: 22px; font-weight: 700;
+    }
+    .metric-value.green { color: var(--green); }
+    .metric-value.red   { color: var(--red); }
+    .metric-value.plain { color: var(--text); }
+
+    /* Equity chart */
+    .chart-wrap {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-title { font-size: 13px; font-weight: 500; color: var(--text-muted); margin-bottom: 10px; }
+    canvas { display: block; width: 100%; }
+
+    /* Trades table */
+    .trades-wrap { padding: 16px 20px; }
+    .trades-wrap h4 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+    .trades-table-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      text-align: left; padding: 7px 10px;
+      font-size: 11px; font-weight: 500;
+      color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--bg-card);
+    }
+    tbody tr { border-bottom: 1px solid rgba(30,45,69,.5); }
+    tbody tr:hover { background: var(--bg-card2); }
+    tbody td { padding: 8px 10px; color: var(--text-dim); }
+    tbody td.pos { color: var(--green); font-weight: 500; }
+    tbody td.neg { color: var(--red);   font-weight: 500; }
+
+    /* Empty state */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px;
+      padding: 64px 24px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    .empty-icon { font-size: 42px; opacity: .35; }
+
+    /* Error banner */
+    .error-banner {
+      background: rgba(240,80,112,.1);
+      border: 1px solid rgba(240,80,112,.4);
+      border-radius: 8px;
+      padding: 14px 16px;
+      color: var(--red);
+      font-size: 13px;
+      margin: 16px 0;
+    }
+
+    /* Loading overlay */
+    .loading-overlay {
+      display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+      padding: 64px 24px;
+      color: var(--text-muted);
+    }
+    .loading-overlay.show { display: flex; }
+    .loading-spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(16,212,168,.2);
+      border-top-color: var(--green);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Config section                                                      */
+    /* ------------------------------------------------------------------ */
+    .config-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .config-card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 15px; font-weight: 600;
+    }
+    .config-body { padding: 20px; }
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 18px;
+    }
+    .config-section-block {
+      background: var(--bg-card2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .config-section-title {
+      padding: 10px 14px;
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .7px;
+      color: var(--text-muted);
+      background: rgba(0,0,0,.15);
+      border-bottom: 1px solid var(--border);
+    }
+    .config-kv { padding: 10px 14px; }
+    .config-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(30,45,69,.4);
+    }
+    .config-row:last-child { border-bottom: none; }
+    .config-key { font-size: 12px; color: var(--text-muted); }
+    .config-val { font-size: 12px; color: var(--text); font-weight: 500; font-family: monospace; }
+    .config-val.true-val  { color: var(--green); }
+    .config-val.false-val { color: var(--red); }
+
+    /* ------------------------------------------------------------------ */
+    /* Toast notification                                                  */
+    /* ------------------------------------------------------------------ */
+    .toast {
+      position: fixed;
+      bottom: 28px; right: 28px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 18px;
+      font-size: 13px;
+      box-shadow: var(--shadow);
+      display: flex; align-items: center; gap: 10px;
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all .3s;
+      z-index: 999;
+      max-width: 340px;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-color: rgba(16,212,168,.4); color: var(--green); }
+    .toast.error   { border-color: rgba(240,80,112,.4); color: var(--red); }
+    .toast.info    { border-color: rgba(59,130,246,.4);  color: var(--blue); }
+  </style>
+</head>
+<body>
+
+<!-- ===================================================================== -->
+<!-- Header                                                                -->
+<!-- ===================================================================== -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    Dhan Quant Trading
+  </div>
+
+  <nav class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('strategies', this)">Strategies</button>
+    <button class="nav-tab" onclick="switchTab('backtest', this)">Backtest</button>
+    <button class="nav-tab" onclick="switchTab('config', this)">Config</button>
+  </nav>
+
+  <div class="header-status">
+    <div class="status-dot"></div>
+    <span id="headerStatus">Loading…</span>
+  </div>
+</header>
+
+<!-- ===================================================================== -->
+<!-- Main                                                                  -->
+<!-- ===================================================================== -->
+<main class="main">
+
+  <!-- ================================================================= -->
+  <!-- STRATEGIES TAB                                                     -->
+  <!-- ================================================================= -->
+  <section id="tab-strategies" class="section active">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Strategies</div>
+        <div class="section-sub">Manage, configure and toggle your trading strategies</div>
+      </div>
+      <div id="strategyCount" style="font-size:13px;color:var(--text-muted)"></div>
+    </div>
+
+    <div id="strategiesGrid" class="strategy-grid">
+      <!-- Cards injected by JS -->
+      <div class="loading-overlay show" style="grid-column:1/-1">
+        <div class="loading-spinner"></div>
+        <span>Loading strategies…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <!-- BACKTEST TAB                                                        -->
+  <!-- ================================================================= -->
+  <section id="tab-backtest" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Backtester</div>
+        <div class="section-sub">Run historical simulations on equity strategies</div>
+      </div>
+    </div>
+
+    <div class="backtest-layout">
+
+      <!-- Form -->
+      <div class="form-card">
+        <h3>Backtest Parameters</h3>
+
+        <div class="form-row">
+          <label>Strategy</label>
+          <select id="btStrategy" onchange="onStrategySelect()"></select>
+        </div>
+
+        <div id="strategyPreview" class="strategy-preview" style="display:none"></div>
+
+        <div class="form-row">
+          <label>From Date</label>
+          <input type="date" id="btFrom" value="2023-01-01" />
+        </div>
+
+        <div class="form-row">
+          <label>To Date</label>
+          <input type="date" id="btTo" value="2024-01-01" />
+        </div>
+
+        <div class="form-row">
+          <label>Initial Capital (₹)</label>
+          <input type="number" id="btCapital" value="100000" min="1000" step="1000" />
+        </div>
+
+        <div class="form-row">
+          <label>Commission (fraction)</label>
+          <input type="number" id="btCommission" value="0.0003" min="0" max="0.05" step="0.0001" />
+          <div class="form-hint">e.g. 0.0003 = 0.03% per trade</div>
+        </div>
+
+        <button class="btn-run" id="btnRun" onclick="runBacktest()">
+          <span>▶ Run Backtest</span>
+        </button>
+
+        <div id="btError" class="error-banner" style="display:none"></div>
+      </div>
+
+      <!-- Results -->
+      <div class="results-card" id="resultsCard">
+        <div class="loading-overlay show" id="resultsLoading" style="display:none">
+          <div class="loading-spinner"></div>
+          <span>Running backtest…</span>
+        </div>
+
+        <div id="resultsEmpty" class="empty-state">
+          <div class="empty-icon">📊</div>
+          <div>Select a strategy and click <strong>Run Backtest</strong></div>
+          <div style="font-size:12px">Results will appear here</div>
+        </div>
+
+        <div id="resultsContent" style="display:none">
+          <div class="results-header">
+            <div>
+              <h3 id="resultsTitle">—</h3>
+              <div class="results-meta" id="resultsMeta">—</div>
+            </div>
+          </div>
+
+          <div class="metrics-grid" id="metricsGrid"></div>
+
+          <div class="chart-wrap">
+            <div class="chart-title">Equity Curve</div>
+            <canvas id="equityChart" height="180"></canvas>
+          </div>
+
+          <div class="trades-wrap">
+            <h4 id="tradesTitle">Trade History</h4>
+            <div class="trades-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Entry</th>
+                    <th>Exit</th>
+                    <th>Qty</th>
+                    <th>P&amp;L</th>
+                  </tr>
+                </thead>
+                <tbody id="tradesBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <!-- CONFIG TAB                                                          -->
+  <!-- ================================================================= -->
+  <section id="tab-config" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Configuration</div>
+        <div class="section-sub">Current settings from <code>config/config.yaml</code></div>
+      </div>
+    </div>
+
+    <div class="config-card">
+      <div class="config-card-header">Platform Configuration</div>
+      <div class="config-body">
+        <div id="configGrid" class="config-grid">
+          <div class="loading-overlay show">
+            <div class="loading-spinner"></div>
+            <span>Loading config…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- ===================================================================== -->
+<!-- JavaScript                                                            -->
+<!-- ===================================================================== -->
+<script>
+/* ======================================================================= */
+/* Globals                                                                  */
+/* ======================================================================= */
+let _strategies = [];
+
+/* ======================================================================= */
+/* Utilities                                                                */
+/* ======================================================================= */
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = type === 'success' ? '✓  ' + msg
+                 : type === 'error'   ? '✕  ' + msg
+                 :                      'ℹ  ' + msg;
+  el.className = `toast ${type} show`;
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function fmt(n, decimals = 2) {
+  return Number(n).toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function fmtCurrency(n) {
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '−' : '';
+  if (abs >= 1e7) return sign + '₹' + fmt(abs / 1e7, 2) + 'Cr';
+  if (abs >= 1e5) return sign + '₹' + fmt(abs / 1e5, 2) + 'L';
+  return sign + '₹' + fmt(abs, 0);
+}
+
+/* ======================================================================= */
+/* Tab switching                                                            */
+/* ======================================================================= */
+function switchTab(name, el) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+
+  if (name === 'backtest') populateBacktestDropdown();
+  if (name === 'config')   loadConfig();
+}
+
+/* ======================================================================= */
+/* Strategies tab                                                           */
+/* ======================================================================= */
+async function loadStrategies() {
+  try {
+    _strategies = await api('GET', '/api/strategies');
+    renderStrategies();
+    const enabled = _strategies.filter(s => s.enabled).length;
+    document.getElementById('strategyCount').textContent =
+      `${enabled} / ${_strategies.length} enabled`;
+    document.getElementById('headerStatus').textContent =
+      `${_strategies.length} strategies loaded`;
+  } catch (e) {
+    document.getElementById('strategiesGrid').innerHTML =
+      `<div class="error-banner" style="grid-column:1/-1">Failed to load strategies: ${e.message}</div>`;
+  }
+}
+
+function renderStrategies() {
+  const grid = document.getElementById('strategiesGrid');
+  grid.innerHTML = '';
+  _strategies.forEach(s => grid.appendChild(buildCard(s)));
+}
+
+function badgeClass(type) {
+  const map = { blue: 'badge-blue', purple: 'badge-purple', orange: 'badge-orange' };
+  return map[type] || 'badge-blue';
+}
+
+function buildCard(s) {
+  const div = document.createElement('div');
+  div.className = `card ${s.enabled ? 'enabled' : 'disabled'}`;
+  div.id = `card-${s.id}`;
+
+  // Build params fields HTML
+  const paramsHtml = s.param_schema.map(p => {
+    const val = s.params[p.key] !== undefined ? s.params[p.key] : p.default;
+    const attrs = p.type === 'number'
+      ? `type="number" min="${p.min ?? ''}" max="${p.max ?? ''}" step="${p.step ?? 1}"`
+      : `type="text"`;
+    return `
+      <div class="param-field">
+        <label>${escHtml(p.label)}</label>
+        <input ${attrs} value="${escHtml(String(val))}"
+               id="param-${s.id}-${p.key}"
+               data-strategy="${s.id}" data-key="${p.key}" />
+      </div>`;
+  }).join('');
+
+  const assetBadge = s.asset_type === 'options'
+    ? '<span class="badge badge-orange">Options</span>'
+    : '<span class="badge badge-green">Equity</span>';
+
+  div.innerHTML = `
+    <div class="card-header">
+      <div class="card-meta">
+        <div class="card-name">${escHtml(s.name)}</div>
+        <div class="card-badges">
+          <span class="badge ${badgeClass(s.type_color)}">${escHtml(s.type)}</span>
+          ${assetBadge}
+        </div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle" title="${s.enabled ? 'Enabled' : 'Disabled'}">
+          <input type="checkbox" ${s.enabled ? 'checked' : ''}
+                 onchange="toggleStrategy('${s.id}', this)" />
+          <span class="toggle-slider"></span>
+        </label>
+        <div class="toggle-label" id="toggle-label-${s.id}">${s.enabled ? 'ON' : 'OFF'}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">${escHtml(s.description)}</div>
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-ghost" onclick="toggleParams('${s.id}')">⚙ Parameters</button>
+      ${s.asset_type !== 'options'
+        ? `<button class="btn btn-blue" onclick="goBacktest('${s.id}')">▶ Backtest</button>`
+        : `<span style="font-size:12px;color:var(--text-muted);align-self:center">Requires live API</span>`
+      }
+    </div>
+    <div class="params-panel" id="params-${s.id}">
+      <div class="params-grid">${paramsHtml}</div>
+      <div class="params-save-row">
+        <button class="btn btn-primary" onclick="saveParams('${s.id}')">💾 Save Parameters</button>
+        <span class="save-msg" id="save-msg-${s.id}"></span>
+      </div>
+    </div>`;
+
+  return div;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function toggleParams(id) {
+  const panel = document.getElementById(`params-${id}`);
+  panel.classList.toggle('open');
+}
+
+async function toggleStrategy(id, checkbox) {
+  try {
+    const result = await api('POST', `/api/strategies/${id}/toggle`);
+    const card = document.getElementById(`card-${id}`);
+    const label = document.getElementById(`toggle-label-${id}`);
+    if (result.enabled) {
+      card.classList.replace('disabled', 'enabled');
+      label.textContent = 'ON';
+    } else {
+      card.classList.replace('enabled', 'disabled');
+      label.textContent = 'OFF';
+    }
+    // Sync local state
+    const s = _strategies.find(x => x.id === id);
+    if (s) s.enabled = result.enabled;
+
+    const enabled = _strategies.filter(x => x.enabled).length;
+    document.getElementById('strategyCount').textContent =
+      `${enabled} / ${_strategies.length} enabled`;
+
+    toast(`${result.enabled ? 'Enabled' : 'Disabled'}: ${s ? s.name : id}`);
+  } catch (e) {
+    checkbox.checked = !checkbox.checked; // revert
+    toast(`Toggle failed: ${e.message}`, 'error');
+  }
+}
+
+async function saveParams(id) {
+  const schema = (_strategies.find(s => s.id === id) || {}).param_schema || [];
+  const params = {};
+  schema.forEach(p => {
+    const el = document.getElementById(`param-${id}-${p.key}`);
+    if (!el) return;
+    params[p.key] = p.type === 'number' ? Number(el.value) : el.value;
+  });
+
+  const msgEl = document.getElementById(`save-msg-${id}`);
+  try {
+    await api('PUT', `/api/strategies/${id}/params`, params);
+    // Update local state
+    const s = _strategies.find(x => x.id === id);
+    if (s) s.params = { ...s.params, ...params };
+    msgEl.textContent = '✓ Saved';
+    msgEl.className = 'save-msg show';
+    setTimeout(() => msgEl.classList.remove('show'), 2500);
+    toast('Parameters saved');
+  } catch (e) {
+    msgEl.textContent = '✕ ' + e.message;
+    msgEl.className = 'save-msg show error';
+    setTimeout(() => msgEl.classList.remove('show'), 3000);
+    toast(`Save failed: ${e.message}`, 'error');
+  }
+}
+
+/* ======================================================================= */
+/* Backtest tab                                                             */
+/* ======================================================================= */
+function populateBacktestDropdown() {
+  const sel = document.getElementById('btStrategy');
+  const current = sel.value;
+  sel.innerHTML = '';
+  _strategies
+    .filter(s => s.asset_type !== 'options')
+    .forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (s.id === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  onStrategySelect();
+}
+
+function onStrategySelect() {
+  const id = document.getElementById('btStrategy').value;
+  const s = _strategies.find(x => x.id === id);
+  const preview = document.getElementById('strategyPreview');
+  if (!s) { preview.style.display = 'none'; return; }
+
+  const keyParams = s.param_schema
+    .filter(p => ['symbol', 'fast_period', 'slow_period', 'rsi_period', 'period'].includes(p.key))
+    .map(p => `<span class="preview-param">${p.label}: <span>${escHtml(String(s.params[p.key] ?? p.default))}</span></span>`)
+    .join(' &nbsp;|&nbsp; ');
+
+  preview.style.display = 'block';
+  preview.innerHTML = `<div class="preview-name">${escHtml(s.name)}</div>${keyParams}`;
+}
+
+function goBacktest(strategyId) {
+  // Switch to backtest tab and pre-select strategy
+  const tabs = document.querySelectorAll('.nav-tab');
+  switchTab('backtest', tabs[1]);
+  setTimeout(() => {
+    const sel = document.getElementById('btStrategy');
+    sel.value = strategyId;
+    onStrategySelect();
+  }, 50);
+}
+
+async function runBacktest() {
+  const id = document.getElementById('btStrategy').value;
+  if (!id) { toast('Select a strategy first', 'error'); return; }
+
+  const from   = document.getElementById('btFrom').value;
+  const to     = document.getElementById('btTo').value;
+  const cap    = Number(document.getElementById('btCapital').value);
+  const comm   = Number(document.getElementById('btCommission').value);
+
+  const btn = document.getElementById('btnRun');
+  const errEl = document.getElementById('btError');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Running…';
+
+  document.getElementById('resultsEmpty').style.display = 'none';
+  document.getElementById('resultsContent').style.display = 'none';
+  document.getElementById('resultsLoading').style.display = 'flex';
+
+  try {
+    const data = await api('POST', '/api/backtest', {
+      strategy_id: id, from_date: from, to_date: to,
+      capital: cap, commission: comm,
+    });
+    renderResults(data);
+    toast('Backtest complete');
+  } catch (e) {
+    document.getElementById('resultsLoading').style.display = 'none';
+    document.getElementById('resultsEmpty').style.display = 'flex';
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+    toast('Backtest failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>▶ Run Backtest</span>';
+  }
+}
+
+function renderResults(data) {
+  document.getElementById('resultsLoading').style.display = 'none';
+  document.getElementById('resultsEmpty').style.display = 'none';
+
+  const r = data.results;
+  document.getElementById('resultsTitle').textContent =
+    `${data.strategy} · ${data.symbol}`;
+  document.getElementById('resultsMeta').textContent =
+    `${data.from_date} → ${data.to_date} · ${data.bars} bars`;
+
+  // Metrics
+  const retPct  = r.return_pct || 0;
+  const retClass = retPct >= 0 ? 'green' : 'red';
+  document.getElementById('metricsGrid').innerHTML = `
+    <div class="metric">
+      <div class="metric-label">Total Return</div>
+      <div class="metric-value ${retClass}">${fmt(retPct)}%</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Final Equity</div>
+      <div class="metric-value plain">${fmtCurrency(r.current_equity)}</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Realised P&amp;L</div>
+      <div class="metric-value ${r.total_realised_pnl >= 0 ? 'green' : 'red'}">${fmtCurrency(r.total_realised_pnl)}</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Win Rate</div>
+      <div class="metric-value ${r.win_rate >= 50 ? 'green' : 'red'}">${fmt(r.win_rate)}%</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Total Trades</div>
+      <div class="metric-value plain">${r.total_trades}</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Winning / Losing</div>
+      <div class="metric-value plain"><span style="color:var(--green)">${r.winning_trades}</span> / <span style="color:var(--red)">${r.losing_trades}</span></div>
+    </div>`;
+
+  // Equity chart
+  drawEquityChart(data.equity_curve);
+
+  // Trades
+  document.getElementById('tradesTitle').textContent =
+    `Trade History (${data.trades.length} trades)`;
+  const tbody = document.getElementById('tradesBody');
+  tbody.innerHTML = '';
+  if (data.trades.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px">No trades executed</td></tr>`;
+  } else {
+    data.trades.forEach(t => {
+      const cls = t.pnl >= 0 ? 'pos' : 'neg';
+      const sign = t.pnl >= 0 ? '+' : '';
+      tbody.innerHTML += `
+        <tr>
+          <td>${escHtml(t.symbol)}</td>
+          <td>₹${fmt(t.entry_price)}</td>
+          <td>₹${fmt(t.exit_price)}</td>
+          <td>${t.quantity}</td>
+          <td class="${cls}">${sign}₹${fmt(t.pnl)}</td>
+        </tr>`;
+    });
+  }
+
+  document.getElementById('resultsContent').style.display = 'block';
+}
+
+function drawEquityChart(points) {
+  const canvas = document.getElementById('equityChart');
+  const container = canvas.parentElement;
+  const W = container.clientWidth - 40;
+  const H = 180;
+  canvas.width  = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+  if (!points || points.length < 2) {
+    ctx.fillStyle = '#6b7fa0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Not enough data to draw chart', W / 2, H / 2);
+    return;
+  }
+
+  const pad = { top: 12, right: 16, bottom: 28, left: 64 };
+  const iW = W - pad.left - pad.right;
+  const iH = H - pad.top - pad.bottom;
+
+  const values = points.map(p => p.equity);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const range = maxV - minV || 1;
+
+  const toX = i => pad.left + (i / (points.length - 1)) * iW;
+  const toY = v => pad.top + iH - ((v - minV) / range) * iH;
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + iH);
+  const isPositive = values[values.length - 1] >= values[0];
+  const lineColor = isPositive ? '#10d4a8' : '#f05070';
+  grad.addColorStop(0,   isPositive ? 'rgba(16,212,168,.25)' : 'rgba(240,80,112,.25)');
+  grad.addColorStop(1,   'rgba(0,0,0,0)');
+
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(values[0]));
+  for (let i = 1; i < points.length; i++) ctx.lineTo(toX(i), toY(values[i]));
+  ctx.lineTo(toX(points.length - 1), pad.top + iH);
+  ctx.lineTo(toX(0), pad.top + iH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(values[0]));
+  for (let i = 1; i < points.length; i++) ctx.lineTo(toX(i), toY(values[i]));
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1.8;
+  ctx.stroke();
+
+  // Y-axis labels
+  ctx.fillStyle = '#6b7fa0';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+    const v = minV + f * range;
+    const y = toY(v);
+    ctx.fillText(fmtCurrency(v), pad.left - 6, y + 4);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + iW, y);
+    ctx.strokeStyle = 'rgba(30,45,69,.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // X-axis labels (first, middle, last)
+  ctx.textAlign = 'center';
+  [[0, points[0].date],
+   [Math.floor(points.length / 2), points[Math.floor(points.length / 2)].date],
+   [points.length - 1, points[points.length - 1].date]
+  ].forEach(([i, d]) => {
+    ctx.fillText(d, toX(i), H - 6);
+  });
+}
+
+/* ======================================================================= */
+/* Config tab                                                               */
+/* ======================================================================= */
+async function loadConfig() {
+  const grid = document.getElementById('configGrid');
+  grid.innerHTML = '<div class="loading-overlay show"><div class="loading-spinner"></div><span>Loading…</span></div>';
+  try {
+    const cfg = await api('GET', '/api/config');
+    grid.innerHTML = '';
+    Object.entries(cfg).forEach(([section, values]) => {
+      const block = document.createElement('div');
+      block.className = 'config-section-block';
+      let rowsHtml = '';
+      if (typeof values === 'object' && values !== null && !Array.isArray(values)) {
+        Object.entries(values).forEach(([k, v]) => {
+          const valClass = v === true ? 'true-val' : v === false ? 'false-val' : '';
+          rowsHtml += `
+            <div class="config-row">
+              <span class="config-key">${escHtml(k)}</span>
+              <span class="config-val ${valClass}">${escHtml(String(v))}</span>
+            </div>`;
+        });
+      } else {
+        rowsHtml = `<div class="config-row"><span class="config-val">${escHtml(String(values))}</span></div>`;
+      }
+      block.innerHTML = `
+        <div class="config-section-title">${escHtml(section)}</div>
+        <div class="config-kv">${rowsHtml}</div>`;
+      grid.appendChild(block);
+    });
+  } catch (e) {
+    grid.innerHTML = `<div class="error-banner">Failed to load config: ${e.message}</div>`;
+  }
+}
+
+/* ======================================================================= */
+/* Init                                                                     */
+/* ======================================================================= */
+document.addEventListener('DOMContentLoaded', () => {
+  loadStrategies();
+  // Set today's date as backtest "to" default
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('btTo').value = today;
+});
+</script>
+</body>
+</html>
