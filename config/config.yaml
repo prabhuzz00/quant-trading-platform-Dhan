@@ -1,0 +1,26 @@
+# Dhan Quant Trading Platform Configuration
+
+broker:
+  client_id: ""       # Set via DHAN_CLIENT_ID environment variable
+  access_token: ""    # Set via DHAN_ACCESS_TOKEN environment variable
+
+trading:
+  paper_trade: true   # Set to false for live trading
+  default_exchange: NSE
+  default_product_type: INTRADAY
+  default_order_type: LIMIT
+
+risk:
+  max_position_size: 0.05      # Max 5% of portfolio per position
+  max_portfolio_risk: 0.20     # Max 20% portfolio at risk
+  stop_loss_pct: 0.02          # Default 2% stop-loss
+  take_profit_pct: 0.04        # Default 4% take-profit
+
+backtesting:
+  initial_capital: 100000
+  commission: 0.0003           # 0.03% per trade
+  slippage: 0.0001             # 0.01% slippage
+
+logging:
+  level: INFO
+  file: logs/trading.log
