@@ -23,7 +23,7 @@ from dashboard.app import app  # noqa: E402  (import after env vars are loaded)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     host = os.environ.get("HOST", "0.0.0.0")
-    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     print(f"  ⚡  Dhan Quant Trading Dashboard")
     print(f"  🌐  http://localhost:{port}")
     print(f"  ⏹   Press Ctrl+C to stop\n")

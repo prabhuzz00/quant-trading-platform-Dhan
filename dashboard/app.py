@@ -119,10 +119,17 @@ def run_backtest():
             from_date=from_date,
             to_date=to_date,
         )
-    except ImportError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": f"Data fetch error: {exc}"}), 500
+    except ImportError:
+        return jsonify(
+            {
+                "error": (
+                    "yfinance is not installed. Run: pip install yfinance "
+                    "to enable historical data fetching."
+                )
+            }
+        ), 400
+    except Exception:  # noqa: BLE001
+        return jsonify({"error": "Failed to fetch historical data. Check the symbol and date range."}), 500
 
     if data.empty:
         return jsonify(
@@ -144,8 +151,10 @@ def run_backtest():
             slippage=slippage,
         )
         results = backtester.run()
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": f"Backtest failed: {exc}"}), 500
+    except ValueError as exc:
+        return jsonify({"error": f"Invalid backtest parameters: {exc}"}), 400
+    except Exception:  # noqa: BLE001
+        return jsonify({"error": "Backtest failed due to an unexpected error. Check strategy parameters and data range."}), 500
 
     equity_df = backtester.equity_curve()
     trades_df = backtester.trade_history()
@@ -197,8 +206,8 @@ def get_config():
     try:
         config = load_config(_CONFIG_PATH)
         return jsonify(config)
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": str(exc)}), 500
+    except Exception:  # noqa: BLE001
+        return jsonify({"error": "Failed to load configuration file."}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -208,4 +217,5 @@ def get_config():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(debug=True, host="0.0.0.0", port=port)
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(debug=debug, host="0.0.0.0", port=port)

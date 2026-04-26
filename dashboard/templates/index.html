@@ -649,12 +649,12 @@
 
         <div class="form-row">
           <label>From Date</label>
-          <input type="date" id="btFrom" value="2023-01-01" />
+          <input type="date" id="btFrom" />
         </div>
 
         <div class="form-row">
           <label>To Date</label>
-          <input type="date" id="btTo" value="2024-01-01" />
+          <input type="date" id="btTo" />
         </div>
 
         <div class="form-row">
@@ -1241,9 +1241,12 @@ async function loadConfig() {
 /* ======================================================================= */
 document.addEventListener('DOMContentLoaded', () => {
   loadStrategies();
-  // Set today's date as backtest "to" default
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById('btTo').value = today;
+  // Set date defaults: to = today, from = one year ago
+  const today = new Date();
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(today.getFullYear() - 1);
+  document.getElementById('btTo').value   = today.toISOString().slice(0, 10);
+  document.getElementById('btFrom').value = oneYearAgo.toISOString().slice(0, 10);
 });
 </script>
 </body>
