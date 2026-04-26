@@ -9,21 +9,26 @@ logger = get_logger(__name__)
 
 
 class DhanBroker:
-    """Wrapper around the Dhan trading API.
+    """Wrapper around the Dhan trading API (dhanhq >= 2.1.0).
 
     Provides methods for placing/modifying/cancelling orders, fetching
-    positions, holdings, and market quotes.  When *paper_trade* is ``True``
-    (the default) all order operations are simulated locally so you can test
-    strategies without risking real capital.
+    positions, holdings, market quotes, and option chain data.
+
+    When *paper_trade* is ``True`` (the default) all order operations are
+    simulated locally so you can test strategies without risking real capital.
+    Data-fetching methods (option chain, LTP, market quotes) always attempt to
+    connect to the live Dhan API when credentials are present, even in
+    paper-trade mode.
     """
 
-    # Supported exchange segments (mirrors Dhan constants)
+    # Exchange segments
     NSE_EQ = "NSE_EQ"
     BSE_EQ = "BSE_EQ"
     NSE_FNO = "NSE_FNO"
     BSE_FNO = "BSE_FNO"
     MCX = "MCX_COMM"
     NSE_CURRENCY = "NSE_CURRENCY"
+    IDX_I = "IDX_I"  # Index segment for option chain underlying
 
     # Order types
     LIMIT = "LIMIT"
@@ -54,24 +59,30 @@ class DhanBroker:
         self._order_counter = 1
 
         self._dhan: Any = None
-        if not paper_trade:
+        # Always connect when credentials are available – data methods (option
+        # chain, LTP, quotes) work in both paper-trade and live modes.
+        if self.client_id and self.access_token:
             self._connect()
 
         mode = "paper-trade" if paper_trade else "live"
         logger.info("DhanBroker initialised in %s mode (client_id=%s)", mode, self.client_id)
 
     def _connect(self) -> None:
-        """Establish a live connection to the Dhan API."""
+        """Establish a connection to the Dhan API using DhanContext."""
         try:
-            from dhanhq import dhanhq  # type: ignore[import-untyped]
+            from dhanhq import DhanContext, dhanhq  # type: ignore[import-untyped]
 
-            self._dhan = dhanhq(self.client_id, self.access_token)
-            logger.info("Connected to Dhan API")
+            dhan_context = DhanContext(self.client_id, self.access_token)
+            self._dhan = dhanhq(dhan_context)
+            logger.info("Connected to Dhan API (v2)")
         except ImportError as exc:
             raise ImportError(
-                "dhanhq package is required for live trading. "
-                "Install it with: pip install dhanhq"
+                "dhanhq>=2.1.0 is required. Install with: pip install 'dhanhq>=2.1.0'"
             ) from exc
+
+    # ------------------------------------------------------------------ #
+    #  Order management                                                    #
+    # ------------------------------------------------------------------ #
 
     def place_order(
         self,
@@ -111,6 +122,33 @@ class DhanBroker:
         )
         logger.info("Order placed: %s", response)
         return response
+
+    def place_option_order(
+        self,
+        security_id: str,
+        transaction_type: str,
+        quantity: int,
+        order_type: str = "MARKET",
+        product_type: str = "INTRADAY",
+        price: float = 0.0,
+        trigger_price: float = 0.0,
+        exchange_segment: str = "NSE_FNO",
+    ) -> dict:
+        """Convenience method for placing F&O (option) orders.
+
+        Defaults *exchange_segment* to ``NSE_FNO`` and *order_type* to
+        ``MARKET``.  All other arguments are the same as :meth:`place_order`.
+        """
+        return self.place_order(
+            security_id=security_id,
+            exchange_segment=exchange_segment,
+            transaction_type=transaction_type,
+            quantity=quantity,
+            order_type=order_type,
+            product_type=product_type,
+            price=price,
+            trigger_price=trigger_price,
+        )
 
     def _paper_place_order(
         self,
@@ -177,6 +215,10 @@ class DhanBroker:
         logger.info("Order modified: %s", response)
         return response
 
+    # ------------------------------------------------------------------ #
+    #  Account / portfolio queries                                         #
+    # ------------------------------------------------------------------ #
+
     def get_order_list(self) -> list[dict]:
         """Return a list of today's orders."""
         if self.paper_trade:
@@ -209,19 +251,136 @@ class DhanBroker:
         response = self._dhan.get_fund_limits()
         return response.get("data", {})
 
-    def get_ltp(self, security_id: str, exchange_segment: str) -> float:
-        """Return the last traded price for a security.
+    # ------------------------------------------------------------------ #
+    #  Live market data (available in both paper-trade and live modes)    #
+    # ------------------------------------------------------------------ #
 
-        Returns 0.0 in paper-trade mode (caller should supply price from data
-        feed instead).
+    def get_ltp(self, security_id: str, exchange_segment: str) -> float:
+        """Return the last traded price for a security via the Dhan REST API.
+
+        Returns ``0.0`` when no API connection is available.
         """
-        if self.paper_trade:
+        if self._dhan is None:
             return 0.0
 
-        response = self._dhan.get_ltp_data(
-            security_id=security_id,
-            exchange_segment=exchange_segment,
-            instrument_type="EQUITY",
-        )
-        data = response.get("data", {})
-        return float(data.get("lastTradedPrice", 0.0))
+        try:
+            response = self._dhan.ticker_data(
+                securities={exchange_segment: [int(security_id)]}
+            )
+            data = response.get("data", {})
+            # ticker_data returns a list of records under the segment key
+            records = data.get(exchange_segment, [])
+            if records:
+                return float(records[0].get("last_price", 0.0))
+        except Exception as exc:
+            logger.warning("get_ltp failed for %s: %s", security_id, exc)
+        return 0.0
+
+    def get_market_quote(
+        self,
+        securities: dict[str, list[int]],
+        mode: str = "ticker",
+    ) -> dict:
+        """Return market quote data for a basket of securities.
+
+        Parameters
+        ----------
+        securities:
+            Mapping of exchange-segment → list of integer security IDs,
+            e.g. ``{"NSE_FNO": [52175, 52176]}``.
+        mode:
+            ``"ticker"`` (LTP only), ``"ohlc"`` (OHLC snapshot), or
+            ``"quote"`` (full packet including depth, OI, etc.).
+
+        Returns the raw response dict from the Dhan API, or an empty dict
+        when no API connection is available.
+        """
+        if self._dhan is None:
+            logger.warning("get_market_quote called without API connection.")
+            return {}
+
+        try:
+            if mode == "ohlc":
+                return self._dhan.ohlc_data(securities=securities)
+            if mode == "quote":
+                return self._dhan.quote_data(securities=securities)
+            return self._dhan.ticker_data(securities=securities)
+        except Exception as exc:
+            logger.warning("get_market_quote failed: %s", exc)
+            return {}
+
+    # ------------------------------------------------------------------ #
+    #  Option chain                                                        #
+    # ------------------------------------------------------------------ #
+
+    def get_expiry_list(
+        self,
+        under_security_id: int,
+        under_exchange_segment: str = "IDX_I",
+    ) -> list[str]:
+        """Return available expiry dates for an underlying.
+
+        Parameters
+        ----------
+        under_security_id:
+            Dhan security ID of the underlying (e.g. 13 for Nifty 50).
+        under_exchange_segment:
+            Exchange segment of the underlying (default ``"IDX_I"`` for
+            index; use ``"NSE_EQ"`` for equities).
+
+        Returns a list of expiry date strings (``YYYY-MM-DD``), or an empty
+        list when no API connection is available.
+        """
+        if self._dhan is None:
+            logger.warning("get_expiry_list called without API connection.")
+            return []
+
+        try:
+            response = self._dhan.expiry_list(
+                under_security_id=under_security_id,
+                under_exchange_segment=under_exchange_segment,
+            )
+            data = response.get("data", {})
+            return data.get("ExpiryDate", [])
+        except Exception as exc:
+            logger.warning("get_expiry_list failed: %s", exc)
+            return []
+
+    def get_option_chain(
+        self,
+        under_security_id: int,
+        under_exchange_segment: str,
+        expiry: str,
+    ) -> dict:
+        """Fetch the full option chain for an underlying and expiry.
+
+        Parameters
+        ----------
+        under_security_id:
+            Dhan security ID of the underlying (e.g. 13 for Nifty 50,
+            25 for BankNifty).
+        under_exchange_segment:
+            Exchange segment of the underlying (e.g. ``"IDX_I"``).
+        expiry:
+            Expiry date string in ``YYYY-MM-DD`` format.
+
+        Returns the raw ``data`` dict from the Dhan API, which contains
+        ``oc_data`` (list of strike-level records with call/put details),
+        ``last_price`` (spot LTP), and ``expiry_list``.  Returns an empty
+        dict when no API connection is available.
+        """
+        if self._dhan is None:
+            logger.warning("get_option_chain called without API connection.")
+            return {}
+
+        try:
+            response = self._dhan.option_chain(
+                under_security_id=under_security_id,
+                under_exchange_segment=under_exchange_segment,
+                expiry=expiry,
+            )
+            return response.get("data", {})
+        except Exception as exc:
+            logger.warning("get_option_chain failed: %s", exc)
+            return {}
+

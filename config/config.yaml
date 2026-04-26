@@ -24,3 +24,30 @@ backtesting:
 logging:
   level: INFO
   file: logs/trading.log
+
+# Option chain configuration
+option_chain:
+  # Dhan security IDs for common underlyings
+  nifty50_security_id: 13
+  banknifty_security_id: 25
+  finnifty_security_id: 27
+  midcpnifty_security_id: 442
+
+  # Default underlying for option strategies
+  default_underlying: nifty50
+  default_exchange_segment: IDX_I   # IDX_I for indices, NSE_EQ for equities
+  default_fno_segment: NSE_FNO
+
+  # Short straddle strategy parameters
+  short_straddle:
+    min_iv_threshold: 15.0          # Minimum IV (%) to enter a short straddle
+    quantity: 1                      # Lots per leg
+    product_type: INTRADAY
+
+  # PCR strategy parameters
+  pcr_strategy:
+    bullish_pcr: 1.5                # PCR above this → buy calls (contrarian)
+    bearish_pcr: 0.5                # PCR below this → buy puts (contrarian)
+    quantity: 1
+    product_type: INTRADAY
+
