@@ -1,0 +1,57 @@
+{
+  "moving_average_cross": {
+    "enabled": true,
+    "params": {
+      "symbol": "RELIANCE",
+      "security_id": "2885",
+      "fast_period": 20,
+      "slow_period": 50,
+      "quantity": 1,
+      "exchange_segment": "NSE_EQ"
+    }
+  },
+  "rsi": {
+    "enabled": false,
+    "params": {
+      "symbol": "TCS",
+      "security_id": "11536",
+      "rsi_period": 14,
+      "oversold": 30,
+      "overbought": 70,
+      "quantity": 1,
+      "exchange_segment": "NSE_EQ"
+    }
+  },
+  "bollinger_bands": {
+    "enabled": true,
+    "params": {
+      "symbol": "INFY",
+      "security_id": "10999",
+      "period": 20,
+      "num_std": 2.0,
+      "quantity": 1,
+      "exchange_segment": "NSE_EQ"
+    }
+  },
+  "short_straddle": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "min_iv_threshold": 15.0,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "pcr": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "bullish_pcr": 1.5,
+      "bearish_pcr": 0.5,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  }
+}
