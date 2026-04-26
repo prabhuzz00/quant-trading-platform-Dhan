@@ -12,11 +12,15 @@ logger = get_logger(__name__)
 
 
 class DataFetcher:
-    """Fetch OHLCV and tick data from Dhan or fallback to yfinance.
+    """Fetch OHLCV and live market data from Dhan or fallback to yfinance.
 
-    When a live ``DhanBroker`` is provided its historical-data endpoint is
-    used.  If no broker is supplied, or for any symbol not available on Dhan,
-    the fetcher falls back to *yfinance* (must be installed separately).
+    When a ``DhanBroker`` is provided and has an active API connection,
+    Dhan's historical-data endpoint is used.  This works regardless of
+    whether the broker is in paper-trade or live mode – only *order
+    execution* is paper-simulated, but market data is always real.
+
+    If no broker is supplied or no API connection is available, the fetcher
+    falls back to *yfinance* (must be installed separately).
     """
 
     def __init__(self, broker: Any | None = None) -> None:
@@ -30,12 +34,18 @@ class DataFetcher:
         instrument_type: str = "EQUITY",
         from_date: str | None = None,
         to_date: str | None = None,
-        expiry_code: int = 0,
+        interval: int = 1,
     ) -> pd.DataFrame:
         """Return a DataFrame with columns [open, high, low, close, volume].
 
         *from_date* and *to_date* should be ISO-8601 strings (``YYYY-MM-DD``).
         If omitted, the last 365 days are used.
+
+        Parameters
+        ----------
+        interval:
+            Candle interval in minutes (default 1).  Passed to
+            ``intraday_minute_data``.  Use ``0`` for daily data.
         """
         today = date.today()
         if to_date is None:
@@ -43,14 +53,15 @@ class DataFetcher:
         if from_date is None:
             from_date = (today - timedelta(days=365)).isoformat()
 
-        if self.broker is not None and not self.broker.paper_trade and security_id:
+        # Use Dhan whenever the broker has an active API connection
+        if self.broker is not None and self.broker._dhan is not None and security_id:
             return self._fetch_from_dhan(
                 security_id=security_id,
                 exchange_segment=exchange_segment,
                 instrument_type=instrument_type,
                 from_date=from_date,
                 to_date=to_date,
-                expiry_code=expiry_code,
+                interval=interval,
             )
 
         return self._fetch_from_yfinance(symbol, from_date, to_date)
@@ -62,18 +73,28 @@ class DataFetcher:
         instrument_type: str,
         from_date: str,
         to_date: str,
-        expiry_code: int,
+        interval: int = 1,
     ) -> pd.DataFrame:
-        """Use the Dhan historical-data API."""
+        """Use the Dhan intraday-minute-data API (dhanhq >= 2.1.0)."""
         try:
-            response = self.broker._dhan.historical_minute_charts(
-                symbol=security_id,
-                exchange_segment=exchange_segment,
-                instrument_type=instrument_type,
-                expiry_code=expiry_code,
-                from_date=from_date,
-                to_date=to_date,
-            )
+            if interval == 0:
+                # Daily candles
+                response = self.broker._dhan.historical_daily_data(
+                    security_id=security_id,
+                    exchange_segment=exchange_segment,
+                    instrument_type=instrument_type,
+                    from_date=from_date,
+                    to_date=to_date,
+                )
+            else:
+                response = self.broker._dhan.intraday_minute_data(
+                    security_id=security_id,
+                    exchange_segment=exchange_segment,
+                    instrument_type=instrument_type,
+                    from_date=from_date,
+                    to_date=to_date,
+                    interval=interval,
+                )
             data = response.get("data", {})
             df = pd.DataFrame(
                 {
@@ -124,3 +145,17 @@ class DataFetcher:
             "Fetched %d rows from yfinance for %s", len(df), ticker_symbol
         )
         return df[["open", "high", "low", "close", "volume"]]
+
+    def get_live_ltp(self, security_id: str, exchange_segment: str) -> float:
+        """Return the live last traded price for a security.
+
+        Delegates to :meth:`~src.broker.dhan_broker.DhanBroker.get_ltp`.
+        Returns ``0.0`` when no broker is attached.
+        """
+        if self.broker is None:
+            return 0.0
+        return self.broker.get_ltp(
+            security_id=security_id,
+            exchange_segment=exchange_segment,
+        )
+
