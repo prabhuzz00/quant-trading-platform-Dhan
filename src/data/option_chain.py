@@ -339,24 +339,25 @@ class OptionChainFetcher:
         if chain.empty:
             return 0.0
 
-        min_pain = float("inf")
-        max_pain_strike = 0.0
+        strikes = chain["strike_price"].to_numpy()
+        call_oi = chain["call_oi"].to_numpy()
+        put_oi = chain["put_oi"].to_numpy()
 
-        for candidate in chain["strike_price"]:
-            # Call pain: OI * max(candidate - strike, 0) for all strikes < candidate
-            call_pain = (
-                chain.loc[chain["strike_price"] < candidate, "call_oi"]
-                * (candidate - chain.loc[chain["strike_price"] < candidate, "strike_price"])
-            ).sum()
-            # Put pain: OI * max(strike - candidate, 0) for all strikes > candidate
-            put_pain = (
-                chain.loc[chain["strike_price"] > candidate, "put_oi"]
-                * (chain.loc[chain["strike_price"] > candidate, "strike_price"] - candidate)
-            ).sum()
-            total_pain = call_pain + put_pain
-            if total_pain < min_pain:
-                min_pain = total_pain
-                max_pain_strike = candidate
+        # Vectorised pain computation using broadcasting:
+        # For each candidate strike (rows), compute pain against all other
+        # strikes (columns) and sum across columns.
+        #
+        # call_pain[i] = sum over j where strikes[j] < strikes[i] of
+        #                call_oi[j] * (strikes[i] - strikes[j])
+        # put_pain[i]  = sum over j where strikes[j] > strikes[i] of
+        #                put_oi[j] * (strikes[j] - strikes[i])
+        import numpy as np  # noqa: PLC0415
+
+        diff = strikes[:, None] - strikes[None, :]  # shape (n, n)
+        call_pain = (call_oi[None, :] * np.maximum(diff, 0)).sum(axis=1)
+        put_pain = (put_oi[None, :] * np.maximum(-diff, 0)).sum(axis=1)
+        total_pain = call_pain + put_pain
+        max_pain_strike = float(strikes[int(total_pain.argmin())])
 
         logger.debug("Max pain strike: %.2f", max_pain_strike)
         return max_pain_strike

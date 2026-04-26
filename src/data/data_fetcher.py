@@ -45,7 +45,8 @@ class DataFetcher:
         ----------
         interval:
             Candle interval in minutes (default 1).  Passed to
-            ``intraday_minute_data``.  Use ``0`` for daily data.
+            ``intraday_minute_data``.  Use ``0`` for daily candles via
+            ``historical_daily_data``.
         """
         today = date.today()
         if to_date is None:

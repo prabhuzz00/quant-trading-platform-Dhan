@@ -20,6 +20,7 @@ data from the Dhan API.
 
 import os
 
+import pandas as pd
 from dotenv import load_dotenv
 
 from src.backtesting.backtester import Backtester
@@ -209,8 +210,6 @@ def run_option_chain_demo(broker: DhanBroker, config: dict, logger) -> None:
 
 
 def main() -> None:
-    import pandas as pd  # noqa: PLC0415 – local import to keep top-level clean
-
     config = load_config("config/config.yaml")
 
     log_cfg = config.get("logging", {})
