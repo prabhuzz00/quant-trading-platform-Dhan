@@ -10,21 +10,54 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Dhan Data API supports up to 5 years of daily historical data.
+_MAX_DAILY_HISTORY_DAYS: int = 5 * 365  # 1,825 days
+
+# Intraday data is subject to Dhan API limits (typically 60–90 days per request
+# depending on the candle interval).  Use a conservative default.
+_MAX_INTRADAY_HISTORY_DAYS: int = 60
+
 
 class DataFetcher:
-    """Fetch OHLCV and live market data from Dhan or fallback to yfinance.
+    """Fetch OHLCV and live market data using Dhan's market data APIs.
 
-    When a ``DhanBroker`` is provided and has an active API connection,
-    Dhan's historical-data endpoint is used.  This works regardless of
-    whether the broker is in paper-trade or live mode – only *order
-    execution* is paper-simulated, but market data is always real.
+    **Historical data** is fetched via the Dhan REST endpoints:
 
-    If no broker is supplied or no API connection is available, the fetcher
-    falls back to *yfinance* (must be installed separately).
+    * ``historical_daily_data`` – daily OHLCV candles (up to 5 years)
+    * ``intraday_minute_data``  – intraday minute candles (up to 60 days)
+
+    Use ``interval=0`` to request daily candles.  Any positive integer is
+    treated as a minute-candle interval.
+
+    **Real-time LTP** is resolved in priority order:
+
+    1. :class:`~src.data.market_streamer.MarketDataStreamer` (WebSocket,
+       lowest latency) – when attached via ``streamer=`` argument.
+    2. :class:`~src.broker.dhan_broker.DhanBroker` REST ``ticker_data``
+       (REST polling) – when a ``broker=`` with live API connection is given.
+    3. ``0.0`` – when neither source is available.
+
+    If no broker is supplied or no API connection is available, the
+    historical-data fallback is *yfinance* (must be installed separately).
+
+    Parameters
+    ----------
+    broker:
+        Optional :class:`~src.broker.dhan_broker.DhanBroker` instance.
+        Used for REST-based historical data and LTP polling.
+    streamer:
+        Optional :class:`~src.data.market_streamer.MarketDataStreamer`
+        instance.  When provided and running, real-time LTP queries are
+        served from the WebSocket tick cache instead of polling the REST API.
     """
 
-    def __init__(self, broker: Any | None = None) -> None:
+    def __init__(
+        self,
+        broker: Any | None = None,
+        streamer: Any | None = None,
+    ) -> None:
         self.broker = broker
+        self.streamer = streamer
 
     def get_historical_data(
         self,
@@ -34,27 +67,45 @@ class DataFetcher:
         instrument_type: str = "EQUITY",
         from_date: str | None = None,
         to_date: str | None = None,
-        interval: int = 1,
+        interval: int = 0,
     ) -> pd.DataFrame:
         """Return a DataFrame with columns [open, high, low, close, volume].
 
         *from_date* and *to_date* should be ISO-8601 strings (``YYYY-MM-DD``).
-        If omitted, the last 365 days are used.
+        When omitted the defaults depend on *interval*:
+
+        * ``interval=0`` (daily candles) – last 5 years (Dhan Data API limit)
+        * ``interval>0`` (minute candles) – last 60 days
 
         Parameters
         ----------
+        symbol:
+            NSE ticker symbol used as fallback for yfinance (e.g.
+            ``"RELIANCE"``).  Ignored when Dhan credentials are available.
+        security_id:
+            Dhan string security ID (e.g. ``"2885"``).  Required for the
+            Dhan data path.
+        exchange_segment:
+            Exchange segment string (e.g. ``"NSE_EQ"``, ``"NSE_FNO"``).
+        instrument_type:
+            ``"EQUITY"``, ``"INDEX"``, ``"FUTIDX"``, ``"OPTIDX"``, etc.
+        from_date, to_date:
+            Date range in ``YYYY-MM-DD`` format.
         interval:
-            Candle interval in minutes (default 1).  Passed to
-            ``intraday_minute_data``.  Use ``0`` for daily candles via
-            ``historical_daily_data``.
+            Candle interval in minutes.  Use ``0`` for daily candles via
+            ``historical_daily_data`` (supports up to 5 years).  Any positive
+            integer uses ``intraday_minute_data`` (up to 60 days).
         """
         today = date.today()
         if to_date is None:
             to_date = today.isoformat()
         if from_date is None:
-            from_date = (today - timedelta(days=365)).isoformat()
+            default_days = (
+                _MAX_DAILY_HISTORY_DAYS if interval == 0 else _MAX_INTRADAY_HISTORY_DAYS
+            )
+            from_date = (today - timedelta(days=default_days)).isoformat()
 
-        # Use Dhan whenever the broker has an active API connection
+        # Dhan Data API is the primary source whenever credentials are present
         if self.broker is not None and self.broker._dhan is not None and security_id:
             return self._fetch_from_dhan(
                 security_id=security_id,
@@ -150,13 +201,36 @@ class DataFetcher:
     def get_live_ltp(self, security_id: str, exchange_segment: str) -> float:
         """Return the live last traded price for a security.
 
-        Delegates to :meth:`~src.broker.dhan_broker.DhanBroker.get_ltp`.
-        Returns ``0.0`` when no broker is attached.
+        Resolution order:
+
+        1. :class:`~src.data.market_streamer.MarketDataStreamer` WebSocket
+           tick cache (lowest latency) – when *streamer* is running.
+        2. :class:`~src.broker.dhan_broker.DhanBroker` REST ``ticker_data``
+           polling – when *broker* has an active API connection.
+        3. ``0.0`` – when neither source is available.
+
+        Parameters
+        ----------
+        security_id:
+            Dhan string security ID.
+        exchange_segment:
+            Segment string (e.g. ``"NSE_EQ"``).
         """
-        if self.broker is None:
-            return 0.0
-        return self.broker.get_ltp(
-            security_id=security_id,
-            exchange_segment=exchange_segment,
-        )
+        # Prefer WebSocket tick cache (real-time, lower latency)
+        if self.streamer is not None and self.streamer.is_running():
+            ltp = self.streamer.get_ltp(
+                security_id=security_id,
+                exchange_segment=exchange_segment,
+            )
+            if ltp > 0.0:
+                return ltp
+
+        # Fall back to REST polling via DhanBroker
+        if self.broker is not None:
+            return self.broker.get_ltp(
+                security_id=security_id,
+                exchange_segment=exchange_segment,
+            )
+
+        return 0.0
 

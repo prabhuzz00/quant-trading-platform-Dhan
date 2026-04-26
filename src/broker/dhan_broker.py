@@ -346,6 +346,76 @@ class DhanBroker:
             logger.warning("get_expiry_list failed: %s", exc)
             return []
 
+    # ------------------------------------------------------------------ #
+    #  Real-time WebSocket streaming                                      #
+    # ------------------------------------------------------------------ #
+
+    def create_streamer(
+        self,
+        instruments: list | None = None,
+        on_tick=None,
+    ):
+        """Create a :class:`~src.data.market_streamer.MarketDataStreamer`.
+
+        The streamer uses Dhan's WebSocket market feed (``MarketFeed``) for
+        real-time price data with lower latency than the REST ``ticker_data``
+        endpoint.  It supports :data:`~src.data.market_streamer.TICKER`,
+        :data:`~src.data.market_streamer.QUOTE`, and
+        :data:`~src.data.market_streamer.FULL` packet types.
+
+        Parameters
+        ----------
+        instruments:
+            Initial list of instrument tuples
+            ``(exchange_segment, security_id[, subscription_type])``.
+            *exchange_segment* should be a ``DhanBroker`` segment string
+            such as ``"NSE_EQ"``.  *subscription_type* defaults to ``TICKER``
+            (15) when omitted.
+        on_tick:
+            Optional callback ``(data: dict) -> None`` called for every
+            incoming tick.
+
+        Returns
+        -------
+        :class:`~src.data.market_streamer.MarketDataStreamer`
+            A streamer instance.  Call :meth:`~MarketDataStreamer.start` to
+            begin receiving ticks.
+
+        Raises
+        ------
+        RuntimeError
+            When no API connection is available (credentials are missing).
+
+        Examples
+        --------
+        ::
+
+            from src.broker.dhan_broker import DhanBroker
+            from src.data.market_streamer import QUOTE
+
+            broker = DhanBroker()  # reads credentials from .env
+            streamer = broker.create_streamer(
+                instruments=[("NSE_EQ", "2885", QUOTE)],  # RELIANCE
+                on_tick=lambda d: print(d["LTP"]),
+            )
+            streamer.start()
+        """
+        if self._dhan is None:
+            raise RuntimeError(
+                "No Dhan API connection available. "
+                "Set DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN to use the streamer."
+            )
+
+        from dhanhq import DhanContext  # type: ignore[import-untyped]
+        from src.data.market_streamer import MarketDataStreamer
+
+        dhan_context = DhanContext(self.client_id, self.access_token)
+        return MarketDataStreamer(
+            dhan_context=dhan_context,
+            instruments=instruments,
+            on_tick=on_tick,
+        )
+
     def get_option_chain(
         self,
         under_security_id: int,
