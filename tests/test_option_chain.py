@@ -7,7 +7,18 @@ import pytest
 
 from src.broker.dhan_broker import DhanBroker
 from src.data.option_chain import OptionChainFetcher
-from src.strategy.option_chain_strategy import PCRStrategy, ShortStraddleStrategy
+from src.strategy.option_chain_strategy import (
+    BearCallSpreadStrategy,
+    BearPutSpreadStrategy,
+    BullCallSpreadStrategy,
+    BullPutSpreadStrategy,
+    IronButterflyStrategy,
+    IronCondorStrategy,
+    LongStraddleStrategy,
+    LongStrangleStrategy,
+    PCRStrategy,
+    ShortStraddleStrategy,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -362,17 +373,6 @@ class TestPCRStrategy:
 # ---------------------------------------------------------------------------
 # Helpers shared by new multi-leg strategy tests
 # ---------------------------------------------------------------------------
-
-from src.strategy.option_chain_strategy import (  # noqa: E402
-    BearCallSpreadStrategy,
-    BearPutSpreadStrategy,
-    BullCallSpreadStrategy,
-    BullPutSpreadStrategy,
-    IronButterflyStrategy,
-    IronCondorStrategy,
-    LongStraddleStrategy,
-    LongStrangleStrategy,
-)
 
 
 def _make_broker_with_chain(call_iv: float = 18.0, put_iv: float = 17.5) -> DhanBroker:

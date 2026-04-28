@@ -223,8 +223,9 @@ def _load_credentials() -> dict:
         if _CREDENTIALS_FILE.exists():
             with _CREDENTIALS_FILE.open() as f:
                 return json.load(f)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("Could not read credentials file: %s", exc)
     return {}
 
 
@@ -264,7 +265,9 @@ def save_credentials():
     try:
         _save_credentials(client_id, access_token)
     except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": f"Failed to save credentials: {exc}"}), 500
+        import logging
+        logging.getLogger(__name__).error("Failed to save credentials: %s", exc)
+        return jsonify({"error": "Failed to save credentials to disk."}), 500
     return jsonify({"status": "saved", "client_id_set": True, "access_token_set": True, "connected": True})
 
 

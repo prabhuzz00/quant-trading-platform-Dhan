@@ -90,7 +90,8 @@ class DhanBroker:
                     self.access_token = file_access_token
                     logger.info("Loaded credentials from %s", _CREDENTIALS_FILE)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not read credentials file: %s", exc)
+            logger.debug("Could not read credentials file (%s): %s", _CREDENTIALS_FILE, exc)
+            logger.warning("Could not load credentials from credentials file.")
 
     def _connect(self) -> None:
         """Establish a connection to the Dhan API using DhanContext."""
