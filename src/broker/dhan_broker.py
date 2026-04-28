@@ -1,11 +1,16 @@
 """Dhan broker integration module."""
 
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Credentials file written by the dashboard Credentials UI
+_CREDENTIALS_FILE = Path(__file__).resolve().parent.parent.parent / "dashboard" / "data" / "credentials.json"
 
 
 class DhanBroker:
@@ -53,6 +58,11 @@ class DhanBroker:
     ) -> None:
         self.client_id = client_id or os.getenv("DHAN_CLIENT_ID", "")
         self.access_token = access_token or os.getenv("DHAN_ACCESS_TOKEN", "")
+
+        # Fall back to persisted credentials written by the dashboard UI
+        if not self.client_id or not self.access_token:
+            self._load_credentials_file()
+
         self.paper_trade = paper_trade
 
         self._paper_orders: list[dict] = []
@@ -66,6 +76,21 @@ class DhanBroker:
 
         mode = "paper-trade" if paper_trade else "live"
         logger.info("DhanBroker initialised in %s mode (client_id=%s)", mode, self.client_id)
+
+    def _load_credentials_file(self) -> None:
+        """Load client_id and access_token from the dashboard credentials file."""
+        try:
+            if _CREDENTIALS_FILE.exists():
+                with _CREDENTIALS_FILE.open() as f:
+                    data = json.load(f)
+                file_client_id = data.get("client_id", "")
+                file_access_token = data.get("access_token", "")
+                if file_client_id and file_access_token:
+                    self.client_id = file_client_id
+                    self.access_token = file_access_token
+                    logger.info("Loaded credentials from %s", _CREDENTIALS_FILE)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not read credentials file: %s", exc)
 
     def _connect(self) -> None:
         """Establish a connection to the Dhan API using DhanContext."""

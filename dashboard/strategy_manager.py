@@ -249,6 +249,366 @@ STRATEGY_CATALOG: dict[str, dict] = {
             {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
         ],
     },
+    # -------------------------------------------------------------------------
+    # Long volatility strategies
+    # -------------------------------------------------------------------------
+    "long_straddle": {
+        "name": "Long Straddle",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Buys the ATM call and ATM put simultaneously. Profits from a large "
+            "move in either direction (earnings, events). Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    "long_strangle": {
+        "name": "Long Strangle",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Buys an OTM call and OTM put simultaneously. Cheaper than a straddle but "
+            "requires a larger move to profit. Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "otm_distance",
+                "label": "OTM Distance (strikes)",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    # -------------------------------------------------------------------------
+    # Debit spread strategies
+    # -------------------------------------------------------------------------
+    "bull_call_spread": {
+        "name": "Bull Call Spread",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Buys an ATM call and sells an OTM call (debit spread). Profits when "
+            "the underlying rises with capped risk and reward. Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "otm_distance",
+                "label": "OTM Distance (strikes)",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    "bear_put_spread": {
+        "name": "Bear Put Spread",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Buys an ATM put and sells an OTM put (debit spread). Profits when "
+            "the underlying falls with capped risk and reward. Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "otm_distance",
+                "label": "OTM Distance (strikes)",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    # -------------------------------------------------------------------------
+    # Credit spread strategies
+    # -------------------------------------------------------------------------
+    "bull_put_spread": {
+        "name": "Bull Put Spread",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Sells an ATM put and buys an OTM put (credit spread). Collects premium "
+            "when the market is stable or bullish. Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "otm_distance",
+                "label": "OTM Distance (strikes)",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    "bear_call_spread": {
+        "name": "Bear Call Spread",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Sells an ATM call and buys an OTM call (credit spread). Collects premium "
+            "when the market is stable or bearish. Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "otm_distance",
+                "label": "OTM Distance (strikes)",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    # -------------------------------------------------------------------------
+    # Multi-leg neutral strategies
+    # -------------------------------------------------------------------------
+    "iron_condor": {
+        "name": "Iron Condor",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Sells an OTM CE + OTM PE and buys further OTM wings for protection. "
+            "Profits when the market stays in a range. IV-gated entry. "
+            "Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "short_otm_distance",
+                "label": "Short Leg OTM Distance",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "long_otm_distance",
+                "label": "Long Leg OTM Distance",
+                "type": "number",
+                "default": 2,
+                "min": 2,
+                "max": 15,
+                "step": 1,
+            },
+            {
+                "key": "min_iv_threshold",
+                "label": "Min IV Threshold (%)",
+                "type": "number",
+                "default": 15.0,
+                "min": 1.0,
+                "max": 100.0,
+                "step": 0.5,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    "iron_butterfly": {
+        "name": "Iron Butterfly",
+        "type": "Options",
+        "type_color": "orange",
+        "description": (
+            "Sells ATM CE + ATM PE and buys OTM wing options for limited risk. "
+            "A tighter, higher-premium variant of the iron condor. IV-gated entry. "
+            "Requires live Dhan API credentials."
+        ),
+        "asset_type": "options",
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {
+                "key": "wing_distance",
+                "label": "Wing Distance (strikes)",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "min_iv_threshold",
+                "label": "Min IV Threshold (%)",
+                "type": "number",
+                "default": 15.0,
+                "min": 1.0,
+                "max": 100.0,
+                "step": 0.5,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
 }
 
 
@@ -388,5 +748,87 @@ def build_strategy_instance(strategy_id: str, params: dict) -> Any:
             num_std=float(params.get("num_std", 2.0)),
             quantity=int(params.get("quantity", 1)),
             exchange_segment=str(params.get("exchange_segment", "NSE_EQ")),
+        )
+    if strategy_id == "long_straddle":
+        from src.strategy.option_chain_strategy import LongStraddleStrategy
+
+        return LongStraddleStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "long_strangle":
+        from src.strategy.option_chain_strategy import LongStrangleStrategy
+
+        return LongStrangleStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            otm_distance=int(params.get("otm_distance", 1)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "bull_call_spread":
+        from src.strategy.option_chain_strategy import BullCallSpreadStrategy
+
+        return BullCallSpreadStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            otm_distance=int(params.get("otm_distance", 1)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "bear_put_spread":
+        from src.strategy.option_chain_strategy import BearPutSpreadStrategy
+
+        return BearPutSpreadStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            otm_distance=int(params.get("otm_distance", 1)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "bull_put_spread":
+        from src.strategy.option_chain_strategy import BullPutSpreadStrategy
+
+        return BullPutSpreadStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            otm_distance=int(params.get("otm_distance", 1)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "bear_call_spread":
+        from src.strategy.option_chain_strategy import BearCallSpreadStrategy
+
+        return BearCallSpreadStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            otm_distance=int(params.get("otm_distance", 1)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "iron_condor":
+        from src.strategy.option_chain_strategy import IronCondorStrategy
+
+        return IronCondorStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            short_otm_distance=int(params.get("short_otm_distance", 1)),
+            long_otm_distance=int(params.get("long_otm_distance", 2)),
+            min_iv_threshold=float(params.get("min_iv_threshold", 15.0)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "iron_butterfly":
+        from src.strategy.option_chain_strategy import IronButterflyStrategy
+
+        return IronButterflyStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            wing_distance=int(params.get("wing_distance", 1)),
+            min_iv_threshold=float(params.get("min_iv_threshold", 15.0)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
         )
     return None

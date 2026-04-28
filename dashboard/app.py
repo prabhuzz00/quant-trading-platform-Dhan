@@ -6,8 +6,10 @@ Run with:
     flask --app dashboard.app run    # via Flask CLI
 """
 
+import json
 import os
 import sys
+from pathlib import Path
 
 # Ensure the repo root is on sys.path when run directly.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,6 +33,7 @@ load_dotenv()
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _CONFIG_PATH = os.path.join(_REPO_ROOT, "config", "config.yaml")
+_CREDENTIALS_FILE = Path(__file__).parent / "data" / "credentials.json"
 
 app = Flask(__name__, template_folder="templates")
 
@@ -208,6 +211,61 @@ def get_config():
         return jsonify(config)
     except Exception:  # noqa: BLE001
         return jsonify({"error": "Failed to load configuration file."}), 500
+
+
+# ---------------------------------------------------------------------------
+# Credentials API
+# ---------------------------------------------------------------------------
+
+
+def _load_credentials() -> dict:
+    try:
+        if _CREDENTIALS_FILE.exists():
+            with _CREDENTIALS_FILE.open() as f:
+                return json.load(f)
+    except Exception:  # noqa: BLE001
+        pass
+    return {}
+
+
+def _save_credentials(client_id: str, access_token: str) -> None:
+    _CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _CREDENTIALS_FILE.open("w") as f:
+        json.dump({"client_id": client_id, "access_token": access_token}, f, indent=2)
+
+
+@app.route("/api/credentials/status", methods=["GET"])
+def credentials_status():
+    """Return whether credentials are set and whether a Dhan connection can be made."""
+    env_client = os.getenv("DHAN_CLIENT_ID", "")
+    env_token = os.getenv("DHAN_ACCESS_TOKEN", "")
+    saved = _load_credentials()
+    client_id = env_client or saved.get("client_id", "")
+    access_token = env_token or saved.get("access_token", "")
+    connected = bool(client_id and access_token)
+    return jsonify(
+        {
+            "client_id_set": bool(client_id),
+            "access_token_set": bool(access_token),
+            "connected": connected,
+            "source": "env" if (env_client and env_token) else ("file" if connected else "none"),
+        }
+    )
+
+
+@app.route("/api/credentials", methods=["POST"])
+def save_credentials():
+    """Persist client_id and access_token to the credentials file."""
+    body = request.get_json(silent=True) or {}
+    client_id = str(body.get("client_id", "")).strip()
+    access_token = str(body.get("access_token", "")).strip()
+    if not client_id or not access_token:
+        return jsonify({"error": "Both client_id and access_token are required."}), 400
+    try:
+        _save_credentials(client_id, access_token)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Failed to save credentials: {exc}"}), 500
+    return jsonify({"status": "saved", "client_id_set": True, "access_token_set": True, "connected": True})
 
 
 # ---------------------------------------------------------------------------
