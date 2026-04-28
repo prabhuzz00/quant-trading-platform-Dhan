@@ -7,7 +7,18 @@ import pytest
 
 from src.broker.dhan_broker import DhanBroker
 from src.data.option_chain import OptionChainFetcher
-from src.strategy.option_chain_strategy import PCRStrategy, ShortStraddleStrategy
+from src.strategy.option_chain_strategy import (
+    BearCallSpreadStrategy,
+    BearPutSpreadStrategy,
+    BullCallSpreadStrategy,
+    BullPutSpreadStrategy,
+    IronButterflyStrategy,
+    IronCondorStrategy,
+    LongStraddleStrategy,
+    LongStrangleStrategy,
+    PCRStrategy,
+    ShortStraddleStrategy,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -357,3 +368,244 @@ class TestPCRStrategy:
         strategy = PCRStrategy(spot_price=SPOT)
         signal = strategy.generate_signals(pd.DataFrame())
         assert signal is None
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by new multi-leg strategy tests
+# ---------------------------------------------------------------------------
+
+
+def _make_broker_with_chain(call_iv: float = 18.0, put_iv: float = 17.5) -> DhanBroker:
+    """Return a mock broker with a 5-strike option chain centred on SPOT."""
+    broker = _make_broker(paper_trade=True)
+    broker._dhan = MagicMock()
+    broker._dhan.expiry_list.return_value = {"data": {"ExpiryDate": ["2024-11-28"]}}
+    raw = _mock_raw_chain(STRIKES, SPOT)
+    for rec in raw["oc_data"]:
+        if rec["strike_price"] == 22000.0:
+            rec["call_options"]["iv"] = call_iv
+            rec["put_options"]["iv"] = put_iv
+    broker._dhan.option_chain.return_value = {"data": raw}
+    return broker
+
+
+# ---------------------------------------------------------------------------
+# LongStraddleStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestLongStraddleStrategy:
+    def test_entry_signal_generated(self):
+        strategy = LongStraddleStrategy(spot_price=SPOT)
+        strategy.attach_broker(_make_broker_with_chain())
+        signal = strategy.generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "BUY"
+        assert "CE" in signal["symbol"]
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = LongStraddleStrategy(spot_price=SPOT)
+        strategy.attach_broker(_make_broker_with_chain())
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = LongStraddleStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+
+# ---------------------------------------------------------------------------
+# LongStrangleStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestLongStrangleStrategy:
+    def test_entry_signal_generated(self):
+        strategy = LongStrangleStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        signal = strategy.generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "BUY"
+        assert "CE" in signal["symbol"]
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = LongStrangleStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = LongStrangleStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+
+# ---------------------------------------------------------------------------
+# BullCallSpreadStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestBullCallSpreadStrategy:
+    def test_entry_signal_generated(self):
+        strategy = BullCallSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        signal = strategy.generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "BUY"
+        assert "CE" in signal["symbol"]
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = BullCallSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = BullCallSpreadStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+
+# ---------------------------------------------------------------------------
+# BearPutSpreadStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestBearPutSpreadStrategy:
+    def test_entry_signal_generated(self):
+        strategy = BearPutSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        signal = strategy.generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "BUY"
+        assert "PE" in signal["symbol"]
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = BearPutSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = BearPutSpreadStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+
+# ---------------------------------------------------------------------------
+# BullPutSpreadStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestBullPutSpreadStrategy:
+    def test_entry_signal_generated(self):
+        strategy = BullPutSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        signal = strategy.generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "SELL"
+        assert "PE" in signal["symbol"]
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = BullPutSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = BullPutSpreadStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+
+# ---------------------------------------------------------------------------
+# BearCallSpreadStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestBearCallSpreadStrategy:
+    def test_entry_signal_generated(self):
+        strategy = BearCallSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        signal = strategy.generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "SELL"
+        assert "CE" in signal["symbol"]
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = BearCallSpreadStrategy(spot_price=SPOT, otm_distance=1)
+        strategy.attach_broker(_make_broker_with_chain())
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = BearCallSpreadStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+
+# ---------------------------------------------------------------------------
+# IronCondorStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestIronCondorStrategy:
+    def _strategy(self, call_iv: float = 18.0, put_iv: float = 17.5) -> IronCondorStrategy:
+        strategy = IronCondorStrategy(
+            spot_price=SPOT,
+            short_otm_distance=1,
+            long_otm_distance=2,
+            min_iv_threshold=15.0,
+        )
+        strategy.attach_broker(_make_broker_with_chain(call_iv=call_iv, put_iv=put_iv))
+        return strategy
+
+    def test_entry_signal_generated(self):
+        signal = self._strategy(call_iv=20.0, put_iv=19.0).generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "SELL"
+        assert "CE" in signal["symbol"]
+
+    def test_no_signal_when_iv_below_threshold(self):
+        signal = self._strategy(call_iv=10.0, put_iv=9.0).generate_signals(pd.DataFrame())
+        assert signal is None
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = self._strategy(call_iv=20.0, put_iv=20.0)
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = IronCondorStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+
+# ---------------------------------------------------------------------------
+# IronButterflyStrategy
+# ---------------------------------------------------------------------------
+
+
+class TestIronButterflyStrategy:
+    def _strategy(self, call_iv: float = 18.0, put_iv: float = 17.5) -> IronButterflyStrategy:
+        strategy = IronButterflyStrategy(
+            spot_price=SPOT,
+            wing_distance=1,
+            min_iv_threshold=15.0,
+        )
+        strategy.attach_broker(_make_broker_with_chain(call_iv=call_iv, put_iv=put_iv))
+        return strategy
+
+    def test_entry_signal_generated(self):
+        signal = self._strategy(call_iv=20.0, put_iv=19.0).generate_signals(pd.DataFrame())
+        assert signal is not None
+        assert signal["action"] == "SELL"
+        assert "CE" in signal["symbol"]
+
+    def test_no_signal_when_iv_below_threshold(self):
+        signal = self._strategy(call_iv=10.0, put_iv=9.0).generate_signals(pd.DataFrame())
+        assert signal is None
+
+    def test_no_duplicate_signal_when_position_open(self):
+        strategy = self._strategy(call_iv=20.0, put_iv=20.0)
+        strategy.generate_signals(pd.DataFrame())
+        assert strategy.generate_signals(pd.DataFrame()) is None
+
+    def test_no_signal_without_broker(self):
+        strategy = IronButterflyStrategy(spot_price=SPOT)
+        assert strategy.generate_signals(pd.DataFrame()) is None
+

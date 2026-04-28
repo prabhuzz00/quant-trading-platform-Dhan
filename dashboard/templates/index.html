@@ -589,10 +589,11 @@
     <button class="nav-tab active" onclick="switchTab('strategies', this)">Strategies</button>
     <button class="nav-tab" onclick="switchTab('backtest', this)">Backtest</button>
     <button class="nav-tab" onclick="switchTab('config', this)">Config</button>
+    <button class="nav-tab" onclick="switchTab('credentials', this)">Credentials</button>
   </nav>
 
   <div class="header-status">
-    <div class="status-dot"></div>
+    <div class="status-dot" id="connDot"></div>
     <span id="headerStatus">Loading…</span>
   </div>
 </header>
@@ -750,6 +751,44 @@
     </div>
   </section>
 
+  <!-- ================================================================= -->
+  <!-- CREDENTIALS TAB                                                     -->
+  <!-- ================================================================= -->
+  <section id="tab-credentials" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">API Credentials</div>
+        <div class="section-sub">Enter your Dhan Client ID and Access Token to enable live trading and data</div>
+      </div>
+      <div id="credStatusBadge" class="badge" style="font-size:13px;padding:5px 12px"></div>
+    </div>
+
+    <div style="max-width:520px">
+      <div class="form-card">
+        <h3>Dhan API Credentials</h3>
+
+        <div class="form-row">
+          <label>Client ID</label>
+          <input type="text" id="credClientId" placeholder="Your Dhan Client ID" autocomplete="off" />
+          <div class="form-hint">Found in your Dhan account settings</div>
+        </div>
+
+        <div class="form-row">
+          <label>Access Token</label>
+          <input type="password" id="credAccessToken" placeholder="Paste your access token" autocomplete="off" />
+          <div class="form-hint">Generate from the Dhan developer portal (valid for 24 h)</div>
+        </div>
+
+        <button class="btn-run" id="btnSaveCreds" onclick="saveCredentials()">
+          <span>🔗 Connect to Dhan API</span>
+        </button>
+
+        <div id="credMsg" class="save-msg" style="margin-top:10px;font-size:13px"></div>
+        <div id="credInfo" class="form-hint" style="margin-top:12px;display:none"></div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- Toast -->
@@ -806,8 +845,9 @@ function switchTab(name, el) {
   document.getElementById('tab-' + name).classList.add('active');
   el.classList.add('active');
 
-  if (name === 'backtest') populateBacktestDropdown();
-  if (name === 'config')   loadConfig();
+  if (name === 'backtest')     populateBacktestDropdown();
+  if (name === 'config')       loadConfig();
+  if (name === 'credentials')  loadCredentialStatus();
 }
 
 /* ======================================================================= */
@@ -1237,10 +1277,77 @@ async function loadConfig() {
 }
 
 /* ======================================================================= */
+/* Credentials tab                                                          */
+/* ======================================================================= */
+async function loadCredentialStatus() {
+  try {
+    const data = await api('GET', '/api/credentials/status');
+    const connected = data.connected;
+    const dot = document.getElementById('connDot');
+    const statusEl = document.getElementById('headerStatus');
+    const badge = document.getElementById('credStatusBadge');
+    const info = document.getElementById('credInfo');
+    if (dot) {
+      dot.style.background = connected ? 'var(--green)' : 'var(--text-muted)';
+      dot.style.boxShadow  = connected ? '0 0 6px var(--green)' : 'none';
+    }
+    if (statusEl) statusEl.textContent = connected ? 'Connected' : 'Not connected';
+    if (badge) {
+      badge.textContent = connected ? '✓ Connected' : '✗ Not connected';
+      badge.style.color = connected ? 'var(--green)' : 'var(--red)';
+      badge.style.borderColor = connected ? 'rgba(16,212,168,.4)' : 'rgba(240,80,112,.4)';
+      badge.style.background = connected ? 'rgba(16,212,168,.1)' : 'rgba(240,80,112,.1)';
+    }
+    if (info) {
+      if (connected) {
+        info.style.display = 'block';
+        info.style.borderColor = 'rgba(16,212,168,.3)';
+        info.textContent = `Credentials loaded from: ${data.source}`;
+      } else {
+        info.style.display = 'block';
+        info.style.borderColor = 'rgba(240,80,112,.3)';
+        info.textContent = 'No credentials set. Enter your Client ID and Access Token above.';
+      }
+    }
+  } catch (e) {
+    // Silently fail if credentials endpoint is unavailable during initial load
+  }
+}
+
+async function saveCredentials() {
+  const clientId    = document.getElementById('credClientId').value.trim();
+  const accessToken = document.getElementById('credAccessToken').value.trim();
+  const msgEl       = document.getElementById('credMsg');
+  const btn         = document.getElementById('btnSaveCreds');
+  if (!clientId || !accessToken) {
+    msgEl.textContent = 'Both Client ID and Access Token are required.';
+    msgEl.className = 'save-msg show error';
+    return;
+  }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Connecting…';
+  msgEl.className = 'save-msg';
+  try {
+    await api('POST', '/api/credentials', { client_id: clientId, access_token: accessToken });
+    msgEl.textContent = 'Credentials saved. Connected to Dhan API.';
+    msgEl.className = 'save-msg show';
+    toast('Credentials saved successfully', 'success');
+    await loadCredentialStatus();
+  } catch (e) {
+    msgEl.textContent = e.message || 'Failed to save credentials.';
+    msgEl.className = 'save-msg show error';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>🔗 Connect to Dhan API</span>';
+  }
+}
+
+/* ======================================================================= */
 /* Init                                                                     */
 /* ======================================================================= */
 document.addEventListener('DOMContentLoaded', () => {
   loadStrategies();
+  loadCredentialStatus();
   // Set date defaults: to = today, from = one year ago
   const today = new Date();
   const oneYearAgo = new Date(today);
