@@ -572,6 +572,83 @@
     .toast.success { border-color: rgba(16,212,168,.4); color: var(--green); }
     .toast.error   { border-color: rgba(240,80,112,.4); color: var(--red); }
     .toast.info    { border-color: rgba(59,130,246,.4);  color: var(--blue); }
+
+    /* ------------------------------------------------------------------ */
+    /* Nav wrapping on small screens                                       */
+    /* ------------------------------------------------------------------ */
+    .nav-tabs { flex-wrap: wrap; }
+    .nav-tab  { padding: 5px 12px; font-size: 12px; }
+
+    /* ------------------------------------------------------------------ */
+    /* Regime badge                                                        */
+    /* ------------------------------------------------------------------ */
+    .regime-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 18px; font-weight: 700;
+      border: 2px solid;
+    }
+    .regime-TRENDING_UP   { color: var(--green);  border-color: var(--green);  background: rgba(16,212,168,.1); }
+    .regime-TRENDING_DOWN { color: var(--red);    border-color: var(--red);    background: rgba(240,80,112,.1); }
+    .regime-SIDEWAYS      { color: var(--blue);   border-color: var(--blue);   background: rgba(59,130,246,.1); }
+    .regime-VOLATILE      { color: var(--orange); border-color: var(--orange); background: rgba(245,158,11,.1); }
+    .regime-UNKNOWN       { color: var(--text-muted); border-color: var(--border); background: none; }
+
+    /* ------------------------------------------------------------------ */
+    /* Stats strip                                                         */
+    /* ------------------------------------------------------------------ */
+    .stats-strip {
+      display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
+    }
+    .stat-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 20px;
+      min-width: 130px;
+    }
+    .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+    .stat-value { font-size: 20px; font-weight: 700; }
+
+    /* ------------------------------------------------------------------ */
+    /* Modal                                                               */
+    /* ------------------------------------------------------------------ */
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.65);
+      z-index: 500;
+      align-items: center; justify-content: center;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      width: min(820px, 95vw);
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow);
+    }
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-header h3 { font-size: 15px; font-weight: 600; }
+    .modal-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+    .modal-close:hover { color: var(--text); background: var(--bg-card2); }
+    .modal-body { padding: 18px 20px; }
+
+    /* ------------------------------------------------------------------ */
+    /* Options trading card additions                                      */
+    /* ------------------------------------------------------------------ */
+    .regime-badge-sm {
+      font-size: 10px; padding: 2px 6px; border-radius: 20px;
+      border: 1px solid currentColor;
+    }
+    .override-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-muted); }
   </style>
 </head>
 <body>
@@ -590,6 +667,12 @@
     <button class="nav-tab" onclick="switchTab('backtest', this)">Backtest</button>
     <button class="nav-tab" onclick="switchTab('config', this)">Config</button>
     <button class="nav-tab" onclick="switchTab('credentials', this)">Credentials</button>
+    <button class="nav-tab" onclick="switchTab('risk', this)">Risk</button>
+    <button class="nav-tab" onclick="switchTab('order_mgmt', this)">Order Mgmt</button>
+    <button class="nav-tab" onclick="switchTab('nifty50', this)">NIFTY50</button>
+    <button class="nav-tab" onclick="switchTab('regime', this)">Regime</button>
+    <button class="nav-tab" onclick="switchTab('options_trading', this)">Options Trading</button>
+    <button class="nav-tab" onclick="switchTab('all_trades', this)">All Trades</button>
   </nav>
 
   <div class="header-status">
@@ -791,6 +874,165 @@
 
 </main>
 
+<!-- ===================================================================== -->
+<!-- New Sections injected after </main> original anchor                   -->
+<!-- ===================================================================== -->
+<div id="extra-sections"></div>
+
+<!-- Trade Modal -->
+<div class="modal-backdrop" id="tradeModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Strategy Trades</h3>
+      <button class="modal-close" onclick="closeTradeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="modalPnlSummary" style="margin-bottom:14px"></div>
+      <div class="trades-table-wrap">
+        <table>
+          <thead><tr>
+            <th>Symbol</th><th>Action</th><th>Qty</th>
+            <th>Entry</th><th>Exit</th><th>Entry Time</th><th>P&amp;L</th><th>Status</th>
+          </tr></thead>
+          <tbody id="modalTradesBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* --- inject extra sections into DOM --- */
+document.getElementById('extra-sections').outerHTML = `
+<!-- RISK TAB -->
+<section id="tab-risk" class="section" style="display:none">
+  <div class="section-header">
+    <div><div class="section-title">Risk Management</div>
+    <div class="section-sub">Set limits to protect your capital</div></div>
+    <button class="btn btn-primary" onclick="saveRisk()">💾 Save Settings</button>
+  </div>
+  <div style="max-width:760px">
+    <div class="form-card">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px" id="riskForm"></div>
+      <div id="riskMsg" class="save-msg" style="margin-top:12px;font-size:13px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ORDER MGMT TAB -->
+<section id="tab-order_mgmt" class="section" style="display:none">
+  <div class="section-header">
+    <div><div class="section-title">Order Management</div>
+    <div class="section-sub">Configure stop-loss and target defaults</div></div>
+    <button class="btn btn-primary" onclick="saveOrderMgmt()">💾 Save Settings</button>
+  </div>
+  <div style="max-width:760px">
+    <div class="form-card">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px" id="orderForm"></div>
+      <div id="orderMsg" class="save-msg" style="margin-top:12px;font-size:13px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- NIFTY50 TAB -->
+<section id="tab-nifty50" class="section" style="display:none">
+  <div class="section-header">
+    <div><div class="section-title">NIFTY50 Monitor</div>
+    <div class="section-sub">Live option chain snapshot from Dhan API</div></div>
+    <button class="btn btn-blue" onclick="fetchNifty()">🔄 Refresh</button>
+  </div>
+  <div id="niftyStats" class="stats-strip"></div>
+  <div class="form-card" id="niftyTable" style="overflow-x:auto">
+    <div class="empty-state"><div class="empty-icon">📈</div><div>Click Refresh to load NIFTY50 data</div></div>
+  </div>
+</section>
+
+<!-- REGIME TAB -->
+<section id="tab-regime" class="section" style="display:none">
+  <div class="section-header">
+    <div><div class="section-title">Market Regime</div>
+    <div class="section-sub">Detected regime controls option trading strategies</div></div>
+    <button class="btn btn-blue" onclick="loadRegime()">🔄 Refresh</button>
+  </div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+    <div style="flex:1;min-width:260px">
+      <div class="form-card" style="margin-bottom:16px">
+        <h3 style="margin-bottom:14px">Current Regime</h3>
+        <div id="regimeBadgeWrap" style="margin-bottom:16px"></div>
+        <div id="regimeDetails" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px"></div>
+      </div>
+      <div class="form-card">
+        <h3 style="margin-bottom:14px">Feed Price Data</h3>
+        <div class="form-row"><label>Close Price</label><input type="number" id="regimePrice" placeholder="e.g. 22500" /></div>
+        <div style="display:flex;gap:10px">
+          <div class="form-row" style="flex:1"><label>High</label><input type="number" id="regimeHigh" placeholder="optional" /></div>
+          <div class="form-row" style="flex:1"><label>Low</label><input type="number" id="regimeLow" placeholder="optional" /></div>
+        </div>
+        <button class="btn btn-primary" onclick="updateRegime()" style="margin-top:6px">Update Regime</button>
+      </div>
+    </div>
+    <div class="form-card" style="flex:1;min-width:260px">
+      <h3 style="margin-bottom:14px">Regime Guide</h3>
+      <div style="display:flex;flex-direction:column;gap:12px;font-size:13px">
+        <div><span class="regime-badge regime-TRENDING_UP" style="font-size:12px;padding:4px 10px">↑ TRENDING UP</span><div style="margin-top:6px;color:var(--text-muted)">Buy ATM calls / bull spreads. Options buying strategies preferred.</div></div>
+        <div><span class="regime-badge regime-TRENDING_DOWN" style="font-size:12px;padding:4px 10px">↓ TRENDING DOWN</span><div style="margin-top:6px;color:var(--text-muted)">Buy ATM puts / bear spreads. Options buying strategies preferred.</div></div>
+        <div><span class="regime-badge regime-SIDEWAYS" style="font-size:12px;padding:4px 10px">↔ SIDEWAYS</span><div style="margin-top:6px;color:var(--text-muted)">Sell straddles / iron condors. Premium selling strategies preferred.</div></div>
+        <div><span class="regime-badge regime-VOLATILE" style="font-size:12px;padding:4px 10px">⚡ VOLATILE</span><div style="margin-top:6px;color:var(--text-muted)">High risk. Avoid selling naked options. Reduce position sizes.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- OPTIONS TRADING TAB -->
+<section id="tab-options_trading" class="section" style="display:none">
+  <div class="section-header">
+    <div><div class="section-title">Options Trading</div>
+    <div class="section-sub">Manage and run all option strategies</div></div>
+    <button class="btn btn-primary btn-lg" id="btnMasterTrading" onclick="toggleMasterTrading()" style="padding:10px 24px;font-size:14px">▶ Start Trading</button>
+  </div>
+  <div id="tradingStatusBanner" style="margin-bottom:16px;display:none"></div>
+  <div id="optionsGrid" class="strategy-grid">
+    <div class="loading-overlay show" style="grid-column:1/-1"><div class="loading-spinner"></div><span>Loading…</span></div>
+  </div>
+</section>
+
+<!-- ALL TRADES TAB -->
+<section id="tab-all_trades" class="section" style="display:none">
+  <div class="section-header">
+    <div><div class="section-title">All Trades</div>
+    <div class="section-sub">Combined trade history across all strategies</div></div>
+    <button class="btn btn-blue" onclick="loadAllTrades()">🔄 Refresh</button>
+  </div>
+  <div id="allTradesStats" class="stats-strip"></div>
+  <div class="form-card" style="margin-bottom:16px;padding:12px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+    <div>
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Status</label>
+      <select id="allTradesStatus" onchange="loadAllTrades()" style="margin-left:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 8px;font-size:13px">
+        <option value="all">All</option><option value="open">Open</option><option value="closed">Closed</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Strategy</label>
+      <select id="allTradesStrategy" onchange="loadAllTrades()" style="margin-left:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 8px;font-size:13px">
+        <option value="">All Strategies</option>
+      </select>
+    </div>
+  </div>
+  <div class="form-card" style="padding:0;overflow:hidden">
+    <div class="trades-table-wrap" style="max-height:520px">
+      <table>
+        <thead><tr>
+          <th>Strategy</th><th>Symbol</th><th>Action</th><th>Qty</th>
+          <th>Entry ₹</th><th>Exit ₹</th><th>Entry Time</th><th>P&amp;L</th><th>Status</th>
+        </tr></thead>
+        <tbody id="allTradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+`;
+</script>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -841,13 +1083,21 @@ function fmtCurrency(n) {
 /* ======================================================================= */
 function switchTab(name, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => { s.style.display = 'none'; });
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
+  const sec = document.getElementById('tab-' + name);
+  if (sec) { sec.classList.add('active'); sec.style.display = 'block'; }
   el.classList.add('active');
 
-  if (name === 'backtest')     populateBacktestDropdown();
-  if (name === 'config')       loadConfig();
-  if (name === 'credentials')  loadCredentialStatus();
+  if (name === 'backtest')        populateBacktestDropdown();
+  if (name === 'config')          loadConfig();
+  if (name === 'credentials')     loadCredentialStatus();
+  if (name === 'risk')            loadRisk();
+  if (name === 'order_mgmt')      loadOrderMgmt();
+  if (name === 'nifty50')         fetchNifty();
+  if (name === 'regime')          loadRegime();
+  if (name === 'options_trading') loadOptionsTrading();
+  if (name === 'all_trades')      loadAllTrades();
 }
 
 /* ======================================================================= */
@@ -1354,7 +1604,406 @@ document.addEventListener('DOMContentLoaded', () => {
   oneYearAgo.setFullYear(today.getFullYear() - 1);
   document.getElementById('btTo').value   = today.toISOString().slice(0, 10);
   document.getElementById('btFrom').value = oneYearAgo.toISOString().slice(0, 10);
+  // hide extra sections by default (already done via style="display:none")
 });
+
+/* ======================================================================= */
+/* Risk tab                                                                 */
+/* ======================================================================= */
+const RISK_FIELDS = [
+  { key: 'max_consecutive_trades_per_strategy', label: 'Max Consecutive Trades / Strategy', type: 'number', min: 1, step: 1 },
+  { key: 'max_total_margin',                    label: 'Max Total Margin (₹)',              type: 'number', min: 0, step: 1000 },
+  { key: 'max_margin_per_strategy',             label: 'Max Margin / Strategy (₹)',         type: 'number', min: 0, step: 1000 },
+  { key: 'max_daily_loss',                      label: 'Max Daily Loss (₹)',                type: 'number', min: 0, step: 100 },
+  { key: 'max_daily_trades',                    label: 'Max Daily Trades',                  type: 'number', min: 1, step: 1 },
+  { key: 'max_open_positions',                  label: 'Max Open Positions',                type: 'number', min: 1, step: 1 },
+  { key: 'risk_per_trade_pct',                  label: 'Risk Per Trade (%)',                type: 'number', min: 0.1, step: 0.1 },
+  { key: 'min_trade_gap_seconds',               label: 'Min Trade Gap (seconds)',           type: 'number', min: 0, step: 10 },
+];
+
+async function loadRisk() {
+  try {
+    const data = await api('GET', '/api/risk');
+    const form = document.getElementById('riskForm');
+    form.innerHTML = RISK_FIELDS.map(f => `
+      <div class="form-row">
+        <label>${escHtml(f.label)}</label>
+        <input type="${f.type}" id="risk-${f.key}" value="${escHtml(String(data[f.key] ?? ''))}"
+               min="${f.min}" step="${f.step}" />
+      </div>`).join('');
+  } catch(e) { toast('Failed to load risk settings: ' + e.message, 'error'); }
+}
+
+async function saveRisk() {
+  const body = {};
+  RISK_FIELDS.forEach(f => {
+    const el = document.getElementById('risk-' + f.key);
+    if (el) body[f.key] = f.type === 'number' ? Number(el.value) : el.value;
+  });
+  try {
+    await api('PUT', '/api/risk', body);
+    const msg = document.getElementById('riskMsg');
+    msg.textContent = '✓ Risk settings saved'; msg.className = 'save-msg show';
+    setTimeout(() => msg.classList.remove('show'), 2500);
+    toast('Risk settings saved');
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+/* ======================================================================= */
+/* Order Mgmt tab                                                           */
+/* ======================================================================= */
+const ORDER_FIELDS = [
+  { key: 'default_sl_points',    label: 'Default SL Points',    type: 'number', step: 1 },
+  { key: 'default_target_points',label: 'Default Target Points', type: 'number', step: 1 },
+  { key: 'sl_type',              label: 'SL Type (FIXED/PERCENT)', type: 'text' },
+  { key: 'sl_percent',           label: 'SL Percent (%)',        type: 'number', step: 0.1 },
+  { key: 'target_type',          label: 'Target Type (FIXED/PERCENT)', type: 'text' },
+  { key: 'target_percent',       label: 'Target Percent (%)',    type: 'number', step: 0.1 },
+  { key: 'trailing_sl_points',   label: 'Trailing SL Points',   type: 'number', step: 1 },
+  { key: 'order_type',           label: 'Order Type (MARKET/LIMIT)', type: 'text' },
+];
+
+async function loadOrderMgmt() {
+  try {
+    const data = await api('GET', '/api/order-management');
+    const form = document.getElementById('orderForm');
+    // trailing_sl_enabled is a checkbox
+    form.innerHTML = `
+      <div class="form-row" style="grid-column:1/-1;display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="order-trailing_sl_enabled" ${data.trailing_sl_enabled ? 'checked' : ''} />
+        <label style="text-transform:none;font-size:13px;color:var(--text)">Enable Trailing Stop-Loss</label>
+      </div>` +
+      ORDER_FIELDS.map(f => `
+        <div class="form-row">
+          <label>${escHtml(f.label)}</label>
+          <input type="${f.type}" id="order-${f.key}" value="${escHtml(String(data[f.key] ?? ''))}"
+                 ${f.step ? `step="${f.step}"` : ''} />
+        </div>`).join('');
+  } catch(e) { toast('Failed to load order settings: ' + e.message, 'error'); }
+}
+
+async function saveOrderMgmt() {
+  const body = { trailing_sl_enabled: document.getElementById('order-trailing_sl_enabled')?.checked || false };
+  ORDER_FIELDS.forEach(f => {
+    const el = document.getElementById('order-' + f.key);
+    if (el) body[f.key] = f.type === 'number' ? Number(el.value) : el.value;
+  });
+  try {
+    await api('PUT', '/api/order-management', body);
+    const msg = document.getElementById('orderMsg');
+    msg.textContent = '✓ Order settings saved'; msg.className = 'save-msg show';
+    setTimeout(() => msg.classList.remove('show'), 2500);
+    toast('Order settings saved');
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+/* ======================================================================= */
+/* NIFTY50 tab                                                              */
+/* ======================================================================= */
+let _niftyRefreshTimer = null;
+
+async function fetchNifty() {
+  const statsEl = document.getElementById('niftyStats');
+  const tableEl = document.getElementById('niftyTable');
+  tableEl.innerHTML = '<div class="loading-overlay show"><div class="loading-spinner"></div><span>Fetching NIFTY50 data…</span></div>';
+  try {
+    const d = await api('GET', '/api/nifty/snapshot');
+    statsEl.innerHTML = `
+      <div class="stat-box"><div class="stat-label">Spot Price</div><div class="stat-value plain">₹${fmt(d.spot_price)}</div></div>
+      <div class="stat-box"><div class="stat-label">Expiry</div><div class="stat-value plain" style="font-size:14px">${escHtml(d.expiry)}</div></div>
+      <div class="stat-box"><div class="stat-label">ATM Strike</div><div class="stat-value plain">₹${fmt(d.atm_strike, 0)}</div></div>
+      <div class="stat-box"><div class="stat-label">ATM Call LTP</div><div class="stat-value green">₹${fmt(d.atm_call?.ltp || 0)}</div></div>
+      <div class="stat-box"><div class="stat-label">ATM Put LTP</div><div class="stat-value red">₹${fmt(d.atm_put?.ltp || 0)}</div></div>
+      <div class="stat-box"><div class="stat-label">PCR</div><div class="stat-value plain">${fmt(d.pcr, 3)}</div></div>
+      <div class="stat-box"><div class="stat-label">Max Pain</div><div class="stat-value plain">₹${fmt(d.max_pain, 0)}</div></div>
+    `;
+    const rows = (d.strikes_near_atm || []).map(s => {
+      const isAtm = s.strike === d.atm_strike;
+      return `<tr ${isAtm ? 'style="background:rgba(16,212,168,.07)"' : ''}>
+        <td style="${isAtm ? 'font-weight:700;color:var(--green)' : ''}">${s.strike}</td>
+        <td class="pos">₹${fmt(s.call_ltp)}</td>
+        <td>${(s.call_oi/1000).toFixed(1)}k</td>
+        <td>${fmt(s.call_iv, 1)}%</td>
+        <td class="neg">₹${fmt(s.put_ltp)}</td>
+        <td>${(s.put_oi/1000).toFixed(1)}k</td>
+        <td>${fmt(s.put_iv, 1)}%</td>
+      </tr>`;
+    }).join('');
+    tableEl.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Strike</th><th>Call LTP</th><th>Call OI</th><th>Call IV</th>
+          <th>Put LTP</th><th>Put OI</th><th>Put IV</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="text-align:right;font-size:11px;color:var(--text-muted);padding:8px 12px">
+        Updated: ${escHtml(d.timestamp || '')}
+      </div>`;
+  } catch(e) {
+    statsEl.innerHTML = '';
+    tableEl.innerHTML = `<div class="error-banner" style="margin:16px">${e.message}</div>`;
+  }
+}
+
+/* ======================================================================= */
+/* Regime tab                                                               */
+/* ======================================================================= */
+async function loadRegime() {
+  try {
+    const d = await api('GET', '/api/regime');
+    const wrap = document.getElementById('regimeBadgeWrap');
+    const cls  = 'regime-' + (d.regime || 'UNKNOWN');
+    const icons = { TRENDING_UP:'↑', TRENDING_DOWN:'↓', SIDEWAYS:'↔', VOLATILE:'⚡', UNKNOWN:'?' };
+    wrap.innerHTML = `<span class="regime-badge ${cls}">${icons[d.regime] || '?'} ${escHtml(d.regime || 'UNKNOWN')}</span>
+      <span style="margin-left:12px;font-size:12px;color:var(--text-muted)">Confidence: ${d.confidence || 0}%</span>`;
+    const det = document.getElementById('regimeDetails');
+    det.innerHTML = [
+      ['EMA 20', `₹${fmt(d.ema20, 2)}`],
+      ['EMA 50', `₹${fmt(d.ema50, 2)}`],
+      ['ADX',    fmt(d.adx, 1)],
+      ['ATR',    fmt(d.atr, 2)],
+      ['ATR %',  fmt(d.atr_ratio, 2) + '%'],
+      ['Bars',   d.bars || 0],
+    ].map(([k,v]) => `<div><span style="color:var(--text-muted)">${escHtml(k)}: </span><strong>${escHtml(String(v))}</strong></div>`).join('');
+  } catch(e) { toast('Regime load failed: ' + e.message, 'error'); }
+}
+
+async function updateRegime() {
+  const price = parseFloat(document.getElementById('regimePrice')?.value || 0);
+  const high  = parseFloat(document.getElementById('regimeHigh')?.value  || 0);
+  const low   = parseFloat(document.getElementById('regimeLow')?.value   || 0);
+  if (!price) { toast('Enter a close price', 'error'); return; }
+  try {
+    await api('POST', '/api/regime/update', { price, high, low });
+    await loadRegime();
+    toast('Regime updated');
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+/* ======================================================================= */
+/* Options Trading tab                                                      */
+/* ======================================================================= */
+let _tradingActive = false;
+
+async function loadOptionsTrading() {
+  const grid = document.getElementById('optionsGrid');
+  const btn  = document.getElementById('btnMasterTrading');
+  const banner = document.getElementById('tradingStatusBanner');
+  try {
+    const [strategies, statusData, regime] = await Promise.all([
+      api('GET', '/api/strategies'),
+      api('GET', '/api/trading/status'),
+      api('GET', '/api/regime'),
+    ]);
+    _tradingActive = statusData.active;
+    updateTradingBtn();
+    // Refresh regime in banner
+    const regimeCls = 'regime-' + (regime.regime || 'UNKNOWN');
+    banner.style.display = 'flex';
+    banner.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:8px;font-size:13px;background:var(--bg-card);border:1px solid var(--border);margin-bottom:16px';
+    banner.innerHTML = `<span>Market Regime:</span>
+      <span class="regime-badge regime-${escHtml(regime.regime)}" style="font-size:12px;padding:3px 10px">${escHtml(regime.regime || 'UNKNOWN')}</span>`;
+
+    const options = strategies.filter(s => s.asset_type === 'options');
+    grid.innerHTML = '';
+    options.forEach(s => grid.appendChild(buildOptionCard(s, regime.regime)));
+  } catch(e) {
+    grid.innerHTML = `<div class="error-banner" style="grid-column:1/-1">Failed: ${e.message}</div>`;
+  }
+}
+
+function buildOptionCard(s, regime) {
+  const div = document.createElement('div');
+  div.className = `card ${s.enabled ? 'enabled' : 'disabled'}`;
+  div.id = `opt-card-${s.id}`;
+  const override = s.regime_override;
+  const overrideLabel = override === true ? 'Override: Always ON'
+                      : override === false ? 'Override: Always OFF'
+                      : s.regime_controlled ? 'Regime Controlled' : 'Manual';
+  const overrideCls = override === true ? 'badge-green'
+                    : override === false ? 'badge-red'
+                    : 'badge-blue';
+  div.innerHTML = `
+    <div class="card-header">
+      <div class="card-meta">
+        <div class="card-name">${escHtml(s.name)}</div>
+        <div class="card-badges">
+          <span class="badge ${badgeClass(s.type_color)}">${escHtml(s.type)}</span>
+          <span class="badge ${overrideCls}">${escHtml(overrideLabel)}</span>
+        </div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleStrategy('${s.id}', this)" />
+          <span class="toggle-slider"></span>
+        </label>
+        <div class="toggle-label" id="opt-toggle-label-${s.id}">${s.enabled ? 'ON' : 'OFF'}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">${escHtml(s.description)}</div>
+      <div class="override-row" style="margin-top:10px">
+        <label style="font-size:11px;color:var(--text-muted)">Regime Override:</label>
+        <select onchange="setRegimeOverride('${s.id}', this.value)"
+                style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:12px">
+          <option value="null"  ${override === null  || override === undefined ? 'selected':''}>Follow Regime</option>
+          <option value="true"  ${override === true  ? 'selected':''}>Always ON</option>
+          <option value="false" ${override === false ? 'selected':''}>Always OFF</option>
+        </select>
+      </div>
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-ghost" onclick="showStrategyTrades('${s.id}', '${escHtml(s.name)}')">📋 View Trades</button>
+    </div>`;
+  return div;
+}
+
+function updateTradingBtn() {
+  const btn = document.getElementById('btnMasterTrading');
+  if (_tradingActive) {
+    btn.textContent = '⏹ Stop Trading';
+    btn.style.background = 'rgba(240,80,112,.15)';
+    btn.style.borderColor = 'var(--red)';
+    btn.style.color = 'var(--red)';
+  } else {
+    btn.textContent = '▶ Start Trading';
+    btn.style.background = 'rgba(16,212,168,.15)';
+    btn.style.borderColor = 'var(--green)';
+    btn.style.color = 'var(--green)';
+  }
+}
+
+async function toggleMasterTrading() {
+  try {
+    const endpoint = _tradingActive ? '/api/trading/stop' : '/api/trading/start';
+    const res = await api('POST', endpoint);
+    _tradingActive = res.active;
+    updateTradingBtn();
+    toast(_tradingActive ? 'Trading started' : 'Trading stopped', _tradingActive ? 'success' : 'info');
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function setRegimeOverride(strategyId, val) {
+  const override = val === 'true' ? true : val === 'false' ? false : null;
+  try {
+    await api('POST', `/api/strategies/${strategyId}/regime-override`, { override });
+    toast('Regime override updated');
+    loadOptionsTrading();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+/* ======================================================================= */
+/* Trade modal                                                              */
+/* ======================================================================= */
+async function showStrategyTrades(strategyId, strategyName) {
+  document.getElementById('modalTitle').textContent = `Trades — ${strategyName}`;
+  document.getElementById('tradeModal').classList.add('show');
+  document.getElementById('modalTradesBody').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px">Loading…</td></tr>';
+  try {
+    const [trades, pnl] = await Promise.all([
+      api('GET', `/api/trades?strategy_id=${encodeURIComponent(strategyId)}`),
+      api('GET', `/api/trades/strategy/${encodeURIComponent(strategyId)}`),
+    ]);
+    // PnL summary
+    const pnlColor = pnl.total_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('modalPnlSummary').innerHTML = `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+        <div class="stat-box"><div class="stat-label">Total PnL</div><div class="stat-value" style="color:${pnlColor}">₹${fmt(pnl.total_pnl)}</div></div>
+        <div class="stat-box"><div class="stat-label">Open Trades</div><div class="stat-value plain">${pnl.open_trades}</div></div>
+        <div class="stat-box"><div class="stat-label">Closed Trades</div><div class="stat-value plain">${pnl.closed_trades}</div></div>
+        <div class="stat-box"><div class="stat-label">Win Rate</div><div class="stat-value ${pnl.win_rate>=50?'green':'red'}">${fmt(pnl.win_rate,1)}%</div></div>
+      </div>`;
+    if (!trades.length) {
+      document.getElementById('modalTradesBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No trades found</td></tr>';
+    } else {
+      document.getElementById('modalTradesBody').innerHTML = trades.map(t => {
+        const pc = t.pnl >= 0 ? 'pos' : 'neg';
+        return `<tr>
+          <td>${escHtml(t.symbol)}</td>
+          <td>${escHtml(t.action)}</td>
+          <td>${t.quantity}</td>
+          <td>₹${fmt(t.entry_price)}</td>
+          <td>${t.exit_price ? '₹'+fmt(t.exit_price) : '—'}</td>
+          <td style="font-size:11px">${escHtml(t.entry_time||'').slice(0,16)}</td>
+          <td class="${pc}">${t.status==='OPEN'?'—':(t.pnl>=0?'+':'')}₹${fmt(t.pnl)}</td>
+          <td><span class="badge ${t.status==='OPEN'?'badge-blue':'badge-green'}">${escHtml(t.status)}</span></td>
+        </tr>`;
+      }).join('');
+    }
+  } catch(e) {
+    document.getElementById('modalTradesBody').innerHTML = `<tr><td colspan="8" style="color:var(--red);padding:16px">${e.message}</td></tr>`;
+  }
+}
+
+function closeTradeModal() {
+  document.getElementById('tradeModal').classList.remove('show');
+}
+
+/* ======================================================================= */
+/* All Trades tab                                                           */
+/* ======================================================================= */
+async function loadAllTrades() {
+  const status   = document.getElementById('allTradesStatus')?.value   || 'all';
+  const stratSel = document.getElementById('allTradesStrategy');
+  const stratId  = stratSel?.value || '';
+  const statsEl  = document.getElementById('allTradesStats');
+  const tbody    = document.getElementById('allTradesBody');
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px">Loading…</td></tr>';
+  try {
+    let url = `/api/trades?status=${status}`;
+    if (stratId) url += `&strategy_id=${encodeURIComponent(stratId)}`;
+    const [trades, stats] = await Promise.all([
+      api('GET', url),
+      api('GET', '/api/trades/stats'),
+    ]);
+    // Populate strategy dropdown (once)
+    if (stratSel && stratSel.options.length <= 1) {
+      const ids = [...new Set(trades.map(t => t.strategy_id).filter(Boolean))];
+      ids.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id; opt.textContent = id;
+        stratSel.appendChild(opt);
+      });
+      if (stratId) stratSel.value = stratId;
+    }
+    // Stats
+    const totalPnl   = stats.reduce((a, s) => a + (s.total_pnl || 0), 0);
+    const openCount  = stats.reduce((a, s) => a + (s.open_trades || 0), 0);
+    const closedCount= stats.reduce((a, s) => a + (s.closed_trades || 0), 0);
+    const totalTrades= closedCount + openCount;
+    const winTrades  = stats.reduce((a, s) => a + (s.winning_trades || 0), 0);
+    const winRate    = closedCount > 0 ? (winTrades / closedCount * 100).toFixed(1) : '0.0';
+    const pnlColor   = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    statsEl.innerHTML = `
+      <div class="stat-box"><div class="stat-label">Total P&amp;L</div><div class="stat-value" style="color:${pnlColor}">₹${fmt(totalPnl)}</div></div>
+      <div class="stat-box"><div class="stat-label">Total Trades</div><div class="stat-value plain">${totalTrades}</div></div>
+      <div class="stat-box"><div class="stat-label">Open</div><div class="stat-value plain" style="color:var(--blue)">${openCount}</div></div>
+      <div class="stat-box"><div class="stat-label">Closed</div><div class="stat-value plain">${closedCount}</div></div>
+      <div class="stat-box"><div class="stat-label">Win Rate</div><div class="stat-value ${Number(winRate)>=50?'green':'red'}">${winRate}%</div></div>
+    `;
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:28px">No trades found</td></tr>';
+    } else {
+      tbody.innerHTML = trades.map(t => {
+        const pc = t.pnl >= 0 ? 'pos' : 'neg';
+        return `<tr>
+          <td style="font-size:11px">${escHtml(t.strategy_id || '')}</td>
+          <td>${escHtml(t.symbol)}</td>
+          <td>${escHtml(t.action)}</td>
+          <td>${t.quantity}</td>
+          <td>₹${fmt(t.entry_price)}</td>
+          <td>${t.exit_price ? '₹'+fmt(t.exit_price) : '—'}</td>
+          <td style="font-size:11px">${escHtml((t.entry_time||'').slice(0,16))}</td>
+          <td class="${pc}">${t.status==='OPEN'?'—':(t.pnl>=0?'+':'')}₹${fmt(t.pnl)}</td>
+          <td><span class="badge ${t.status==='OPEN'?'badge-blue':'badge-green'}">${escHtml(t.status)}</span></td>
+        </tr>`;
+      }).join('');
+    }
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);padding:16px">${e.message}</td></tr>`;
+  }
+}
 </script>
 </body>
 </html>
