@@ -6,6 +6,7 @@ from typing import Any
 
 DATA_DIR = Path(__file__).parent / "data"
 STATE_FILE = DATA_DIR / "strategies.json"
+_TRADING_STATE_FILE = DATA_DIR / "trading_state.json"
 
 # ---------------------------------------------------------------------------
 # Strategy catalog – single source of truth for all available strategies
@@ -609,6 +610,62 @@ STRATEGY_CATALOG: dict[str, dict] = {
             {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
         ],
     },
+    # -------------------------------------------------------------------------
+    # EMA crossover on NIFTY50 futures
+    # -------------------------------------------------------------------------
+    "ema_crossover_nifty": {
+        "name": "EMA Crossover NIFTY (9/21)",
+        "type": "Trend Following",
+        "type_color": "blue",
+        "description": (
+            "Uses EMA(9) vs EMA(21) on NIFTY50 Futures to detect trend crossovers, "
+            "then trades the ATM Call (on golden cross) or ATM Put (on death cross) "
+            "at the current LTP. Regime-controlled by default."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID",
+                "type": "number",
+                "default": 13,
+                "min": 1,
+                "max": 99999,
+                "step": 1,
+            },
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "futures_security_id", "label": "Futures Security ID", "type": "text", "default": "13"},
+            {
+                "key": "fast_period",
+                "label": "Fast EMA Period",
+                "type": "number",
+                "default": 9,
+                "min": 2,
+                "max": 50,
+                "step": 1,
+            },
+            {
+                "key": "slow_period",
+                "label": "Slow EMA Period",
+                "type": "number",
+                "default": 21,
+                "min": 5,
+                "max": 200,
+                "step": 1,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
 }
 
 
@@ -666,9 +723,11 @@ def get_all_strategies() -> list[dict]:
                 "type_color": catalog["type_color"],
                 "description": catalog["description"],
                 "asset_type": catalog["asset_type"],
+                "regime_controlled": catalog.get("regime_controlled", False),
                 "param_schema": catalog["param_schema"],
                 "enabled": s_state.get("enabled", True),
                 "params": s_state.get("params", _default_params(sid)),
+                "regime_override": s_state.get("regime_override", None),
             }
         )
     return result
@@ -831,4 +890,70 @@ def build_strategy_instance(strategy_id: str, params: dict) -> Any:
             quantity=int(params.get("quantity", 1)),
             product_type=str(params.get("product_type", "INTRADAY")),
         )
+    if strategy_id == "ema_crossover_nifty":
+        from src.strategy.ema_crossover_strategy import EMACrossoverNiftyStrategy
+
+        return EMACrossoverNiftyStrategy(
+            under_security_id=int(params.get("under_security_id", 13)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
+            futures_security_id=str(params.get("futures_security_id", "13")),
+            fast_period=int(params.get("fast_period", 9)),
+            slow_period=int(params.get("slow_period", 21)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Trading-active state
+# ---------------------------------------------------------------------------
+
+
+def get_trading_active() -> bool:
+    """Return True when the master trading switch is ON."""
+    try:
+        if _TRADING_STATE_FILE.exists():
+            with _TRADING_STATE_FILE.open() as f:
+                return bool(json.load(f).get("active", False))
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def set_trading_active(active: bool) -> None:
+    """Persist the master trading-active flag."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with _TRADING_STATE_FILE.open("w") as f:
+        json.dump({"active": active}, f)
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy regime override
+# ---------------------------------------------------------------------------
+
+
+def get_strategy_regime_override(strategy_id: str) -> bool | None:
+    """Return the regime override for a strategy.
+
+    Returns
+    -------
+    True  – strategy runs regardless of regime
+    False – strategy never runs (manually disabled by regime override)
+    None  – follow the regime (default)
+    """
+    if strategy_id not in STRATEGY_CATALOG:
+        return None
+    state = _load_state()
+    _ensure_state_entry(state, strategy_id)
+    return state[strategy_id].get("regime_override", None)
+
+
+def set_strategy_regime_override(strategy_id: str, override: bool | None) -> None:
+    """Set the regime override for a strategy (True/False/None)."""
+    if strategy_id not in STRATEGY_CATALOG:
+        return
+    state = _load_state()
+    _ensure_state_entry(state, strategy_id)
+    state[strategy_id]["regime_override"] = override
+    _save_state(state)
