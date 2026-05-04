@@ -1,6 +1,8 @@
 """Abstract base class for all trading strategies."""
 
 from abc import ABC, abstractmethod
+from collections import deque
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -31,6 +33,15 @@ class BaseStrategy(ABC):
         self.params: dict = params or {}
         self._broker: Any = None
         self._portfolio: Any = None
+        self._signal_log: deque = deque(maxlen=200)
+
+    def _log(self, message: str, level: str = "info") -> None:
+        """Append a timestamped entry to the in-memory signal log."""
+        self._signal_log.append({
+            "ts": datetime.now().strftime("%H:%M:%S"),
+            "msg": message,
+            "level": level,
+        })
 
     def attach_broker(self, broker: Any) -> None:
         """Attach a live or paper-trade broker instance."""

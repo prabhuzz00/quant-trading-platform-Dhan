@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Regime labels
 # ---------------------------------------------------------------------------
@@ -74,6 +78,24 @@ class RegimeFinder:
         self._closes.clear()
         self._highs.clear()
         self._lows.clear()
+
+    def seed_from_dataframe(self, df: "pd.DataFrame") -> None:  # noqa: F821
+        """Reset and feed an OHLCV DataFrame into the finder.
+
+        Parameters
+        ----------
+        df:
+            DataFrame with at least a ``close`` column.  ``high`` and
+            ``low`` are used when present; otherwise the close is used as
+            a proxy so ATR collapses to zero.
+        """
+        self.reset()
+        for _, row in df.iterrows():
+            close = float(row.get("close", row.get("Close", 0.0)))
+            high  = float(row.get("high",  row.get("High",  close)))
+            low   = float(row.get("low",   row.get("Low",   close)))
+            if close > 0:
+                self.update(close, high, low)
 
     # ------------------------------------------------------------------ #
     #  Regime queries                                                      #
@@ -202,11 +224,14 @@ class RegimeFinder:
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton
+# Module-level singletons  (NIFTY50 + Crude Oil)
 # ---------------------------------------------------------------------------
 
-_finder = RegimeFinder()
+_finder       = RegimeFinder()   # NIFTY50
+_crude_finder = RegimeFinder()   # MCX Crude Oil
 
+
+# ---- NIFTY50 helpers -------------------------------------------------------
 
 def get_current_regime() -> str:
     """Return the current market regime from the module singleton."""
@@ -221,3 +246,131 @@ def update_regime(price: float, high: float = 0.0, low: float = 0.0) -> None:
 def get_regime_details() -> dict:
     """Return full regime details from the module singleton."""
     return _finder.get_regime_details()
+
+
+# ---- Crude Oil helpers -----------------------------------------------------
+
+def get_crude_regime_details() -> dict:
+    """Return full regime details for the Crude Oil singleton."""
+    d = _crude_finder.get_regime_details()
+    d["instrument"] = "CRUDE_OIL"
+    return d
+
+
+def update_crude_regime(price: float, high: float = 0.0, low: float = 0.0) -> None:
+    """Feed a new Crude Oil price bar to the Crude Oil regime finder."""
+    _crude_finder.update(price, high, low)
+
+
+def auto_refresh_crude_regime(
+    broker: object,
+    security_id: str = "488290",
+    exchange_segment: str = "MCX_COMM",
+    n_bars: int = 15,
+) -> dict:
+    """Fetch recent Crude Oil Futures 1-minute bars and re-seed the Crude finder.
+
+    Parameters
+    ----------
+    broker:
+        A connected :class:`~src.broker.dhan_broker.DhanBroker` instance.
+    security_id:
+        Dhan security ID for the MCX Crude Oil near-month futures contract.
+        This changes each month; update via strategy params.
+    exchange_segment:
+        Exchange segment (default ``"MCX_COMM"``).
+    n_bars:
+        How many most-recent 1-minute bars to use (default 15).
+
+    Returns
+    -------
+    dict
+        Current Crude Oil regime details after refresh.
+    """
+    from src.data.data_fetcher import DataFetcher  # noqa: PLC0415
+
+    try:
+        fetcher = DataFetcher(broker=broker)
+        df = fetcher.get_historical_data(
+            symbol="CRUDE_OIL",
+            security_id=security_id,
+            exchange_segment=exchange_segment,
+            instrument_type="FUTCOM",
+            interval=1,  # 1-minute candles
+        )
+        if df.empty or "close" not in df.columns:
+            logger.warning(
+                "auto_refresh_crude_regime: no 1-min data for sec_id=%s, regime unchanged.",
+                security_id,
+            )
+            return get_crude_regime_details()
+
+        df = df.tail(n_bars)
+        _crude_finder.seed_from_dataframe(df)
+        details = get_crude_regime_details()
+        logger.info(
+            "Crude Oil regime refreshed from %d 1-min bars → %s (ADX=%.1f, ATR_ratio=%.2f%%)",
+            len(df),
+            details["regime"],
+            details["adx"],
+            details["atr_ratio"],
+        )
+        return details
+
+    except Exception as exc:  # noqa: BLE001
+        logger.error("auto_refresh_crude_regime failed: %s", exc)
+        return get_crude_regime_details()
+
+
+
+def auto_refresh_regime(broker: object, n_bars: int = 15) -> dict:
+    """Fetch recent NIFTY50 1-minute bars and re-seed the regime finder.
+
+    Uses ``security_id="13"`` (NIFTY50 index) with ``exchange_segment="IDX_I"``
+    and 1-minute candles (``interval=1``).  Silently falls back to the last
+    known regime when the API is unavailable.
+
+    Parameters
+    ----------
+    broker:
+        A connected :class:`~src.broker.dhan_broker.DhanBroker` instance.
+    n_bars:
+        How many most-recent 1-minute bars to use (default 15).
+
+    Returns
+    -------
+    dict
+        Current regime details after refresh (same shape as
+        :func:`get_regime_details`).
+    """
+    import pandas as pd  # noqa: PLC0415
+    from src.data.data_fetcher import DataFetcher  # noqa: PLC0415
+
+    try:
+        fetcher = DataFetcher(broker=broker)
+        df = fetcher.get_historical_data(
+            symbol="NIFTY50",
+            security_id="13",
+            exchange_segment="IDX_I",
+            instrument_type="INDEX",
+            interval=1,  # 1-minute candles
+        )
+        if df.empty or "close" not in df.columns:
+            logger.warning("auto_refresh_regime: no 1-min data returned, regime unchanged.")
+            return get_regime_details()
+
+        df = df.tail(n_bars)
+        _finder.seed_from_dataframe(df)
+        details = _finder.get_regime_details()
+        logger.info(
+            "Regime auto-refreshed from %d 1-min bars → %s (ADX=%.1f, ATR_ratio=%.2f%%)",
+            len(df),
+            details["regime"],
+            details["adx"],
+            details["atr_ratio"],
+        )
+        return details
+
+    except Exception as exc:  # noqa: BLE001
+        logger.error("auto_refresh_regime failed: %s", exc)
+        return get_regime_details()

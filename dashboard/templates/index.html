@@ -649,6 +649,39 @@
       border: 1px solid currentColor;
     }
     .override-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-muted); }
+
+    /* ------------------------------------------------------------------ */
+    /* Strategy log panel (Options Trading tab)                            */
+    /* ------------------------------------------------------------------ */
+    .log-panel {
+      display: none;
+      padding: 10px 18px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-card2);
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .log-panel.open { display: block; }
+    .log-panel-title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .5px;
+      color: var(--text-muted);
+      padding-bottom: 6px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .log-entry {
+      display: flex; gap: 6px; align-items: baseline;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(30,45,69,.3);
+      font-size: 12px;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-time { color: var(--text-muted); font-size: 10px; min-width: 110px; flex-shrink: 0; }
+    .log-action-buy  { color: var(--green); font-weight: 600; }
+    .log-action-sell { color: var(--red); font-weight: 600; }
+    .log-symbol { color: var(--text-dim); }
+    .log-pnl { margin-left: auto; font-weight: 500; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -670,6 +703,7 @@
     <button class="nav-tab" onclick="switchTab('risk', this)">Risk</button>
     <button class="nav-tab" onclick="switchTab('order_mgmt', this)">Order Mgmt</button>
     <button class="nav-tab" onclick="switchTab('nifty50', this)">NIFTY50</button>
+    <button class="nav-tab" onclick="switchTab('crude', this)">Crude Oil</button>
     <button class="nav-tab" onclick="switchTab('regime', this)">Regime</button>
     <button class="nav-tab" onclick="switchTab('options_trading', this)">Options Trading</button>
     <button class="nav-tab" onclick="switchTab('all_trades', this)">All Trades</button>
@@ -947,38 +981,83 @@ document.getElementById('extra-sections').outerHTML = `
   </div>
 </section>
 
+<!-- CRUDE OIL TAB -->
+<section id="tab-crude" class="section" style="display:none">
+  <div class="section-header">
+    <div><div class="section-title">Crude Oil Monitor</div>
+    <div class="section-sub">Live MCX Crude Oil option chain snapshot from Dhan API</div></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:6px">
+        <label style="font-size:12px;color:var(--text-muted)">Security ID:</label>
+        <input id="crudeSecurityId" type="text" value=""
+               placeholder="Auto-detecting…"
+               style="width:110px;background:var(--bg-input);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 8px;font-size:12px" />
+        <span id="crudeSecIdLabel" style="font-size:11px;color:var(--text-muted)"></span>
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="detectCrudeSecurityId(true)" title="Re-detect from Dhan instrument master">🔍</button>
+      </div>
+      <button class="btn btn-blue" onclick="fetchCrude()">🔄 Refresh</button>
+    </div>
+  </div>
+  <div id="crudeStats" class="stats-strip"></div>
+  <div class="form-card" id="crudeTable" style="overflow-x:auto">
+    <div class="empty-state"><div class="empty-icon">🛢️</div><div>Click Refresh to load Crude Oil data</div></div>
+  </div>
+</section>
+
 <!-- REGIME TAB -->
 <section id="tab-regime" class="section" style="display:none">
   <div class="section-header">
     <div><div class="section-title">Market Regime</div>
-    <div class="section-sub">Detected regime controls option trading strategies</div></div>
-    <button class="btn btn-blue" onclick="loadRegime()">🔄 Refresh</button>
+    <div class="section-sub">Auto-computed from live 1-min data · refreshes every 15 min</div></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="regimeNextRefresh" style="font-size:12px;color:var(--text-muted)"></span>
+      <button class="btn btn-blue" id="btnRegimeRefresh" onclick="refreshRegimeNow()">🔄 Refresh Now</button>
+    </div>
   </div>
-  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
-    <div style="flex:1;min-width:260px">
+
+  <!-- last-updated bar -->
+  <div id="regimeLastUpdated" style="font-size:12px;color:var(--text-muted);margin-bottom:16px"></div>
+
+  <!-- Two-column: NIFTY50 | Crude Oil -->
+  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin-bottom:24px">
+
+    <!-- NIFTY50 panel -->
+    <div style="flex:1;min-width:280px">
       <div class="form-card" style="margin-bottom:16px">
-        <h3 style="margin-bottom:14px">Current Regime</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h3 style="margin:0">NIFTY50</h3>
+          <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="refreshNiftyRegime()">🔄</button>
+        </div>
         <div id="regimeBadgeWrap" style="margin-bottom:16px"></div>
         <div id="regimeDetails" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px"></div>
       </div>
-      <div class="form-card">
-        <h3 style="margin-bottom:14px">Feed Price Data</h3>
-        <div class="form-row"><label>Close Price</label><input type="number" id="regimePrice" placeholder="e.g. 22500" /></div>
-        <div style="display:flex;gap:10px">
-          <div class="form-row" style="flex:1"><label>High</label><input type="number" id="regimeHigh" placeholder="optional" /></div>
-          <div class="form-row" style="flex:1"><label>Low</label><input type="number" id="regimeLow" placeholder="optional" /></div>
+      <div class="form-card" id="regimeIndicatorBars" style="font-size:13px"></div>
+    </div>
+
+    <!-- Crude Oil panel -->
+    <div style="flex:1;min-width:280px">
+      <div class="form-card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h3 style="margin:0">Crude Oil (MCX)</h3>
+          <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="refreshCrudeRegime()">🔄</button>
         </div>
-        <button class="btn btn-primary" onclick="updateRegime()" style="margin-top:6px">Update Regime</button>
+        <div id="crudeRegimeBadgeWrap" style="margin-bottom:16px"></div>
+        <div id="crudeRegimeDetails" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px"></div>
+      </div>
+      <div class="form-card" id="crudeRegimeIndicatorBars" style="font-size:13px">
+        <div style="color:var(--text-muted);font-size:12px">Refresh to compute Crude Oil regime indicators</div>
       </div>
     </div>
-    <div class="form-card" style="flex:1;min-width:260px">
-      <h3 style="margin-bottom:14px">Regime Guide</h3>
-      <div style="display:flex;flex-direction:column;gap:12px;font-size:13px">
-        <div><span class="regime-badge regime-TRENDING_UP" style="font-size:12px;padding:4px 10px">↑ TRENDING UP</span><div style="margin-top:6px;color:var(--text-muted)">Buy ATM calls / bull spreads. Options buying strategies preferred.</div></div>
-        <div><span class="regime-badge regime-TRENDING_DOWN" style="font-size:12px;padding:4px 10px">↓ TRENDING DOWN</span><div style="margin-top:6px;color:var(--text-muted)">Buy ATM puts / bear spreads. Options buying strategies preferred.</div></div>
-        <div><span class="regime-badge regime-SIDEWAYS" style="font-size:12px;padding:4px 10px">↔ SIDEWAYS</span><div style="margin-top:6px;color:var(--text-muted)">Sell straddles / iron condors. Premium selling strategies preferred.</div></div>
-        <div><span class="regime-badge regime-VOLATILE" style="font-size:12px;padding:4px 10px">⚡ VOLATILE</span><div style="margin-top:6px;color:var(--text-muted)">High risk. Avoid selling naked options. Reduce position sizes.</div></div>
-      </div>
+  </div>
+
+  <!-- Regime Guide -->
+  <div class="form-card" style="max-width:640px">
+    <h3 style="margin-bottom:14px">Regime Guide</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+      <div><span class="regime-badge regime-TRENDING_UP" style="font-size:12px;padding:4px 10px">↑ TRENDING UP</span><div style="margin-top:6px;color:var(--text-muted)">Buy ATM calls / bull spreads.</div></div>
+      <div><span class="regime-badge regime-TRENDING_DOWN" style="font-size:12px;padding:4px 10px">↓ TRENDING DOWN</span><div style="margin-top:6px;color:var(--text-muted)">Buy ATM puts / bear spreads.</div></div>
+      <div><span class="regime-badge regime-SIDEWAYS" style="font-size:12px;padding:4px 10px">↔ SIDEWAYS</span><div style="margin-top:6px;color:var(--text-muted)">Sell straddles / iron condors.</div></div>
+      <div><span class="regime-badge regime-VOLATILE" style="font-size:12px;padding:4px 10px">⚡ VOLATILE</span><div style="margin-top:6px;color:var(--text-muted)">High risk — reduce size.</div></div>
     </div>
   </div>
 </section>
@@ -1095,7 +1174,11 @@ function switchTab(name, el) {
   if (name === 'risk')            loadRisk();
   if (name === 'order_mgmt')      loadOrderMgmt();
   if (name === 'nifty50')         fetchNifty();
-  if (name === 'regime')          loadRegime();
+  if (name === 'crude')           { if (!_crudeSecIdDetected) detectCrudeSecurityId().then(() => fetchCrude()); else fetchCrude(); }
+  if (name === 'regime') {
+    loadRegime();
+    _startRegimeAutoRefresh();   // start/restart 15-min timer when tab is opened
+  }
   if (name === 'options_trading') loadOptionsTrading();
   if (name === 'all_trades')      loadAllTrades();
 }
@@ -1481,13 +1564,18 @@ function drawEquityChart(points) {
     ctx.stroke();
   });
 
-  // X-axis labels (first, middle, last)
-  ctx.textAlign = 'center';
-  [[0, points[0].date],
-   [Math.floor(points.length / 2), points[Math.floor(points.length / 2)].date],
-   [points.length - 1, points[points.length - 1].date]
-  ].forEach(([i, d]) => {
-    ctx.fillText(d, toX(i), H - 6);
+  // X-axis labels (first, middle, last) — align to avoid edge clipping
+  const labels = [
+    [0,                           points[0].date,                           'left'  ],
+    [Math.floor(points.length/2), points[Math.floor(points.length/2)].date, 'center'],
+    [points.length - 1,           points[points.length - 1].date,           'right' ],
+  ];
+  labels.forEach(([i, d, align]) => {
+    ctx.textAlign = align;
+    const x = align === 'left'  ? pad.left
+              : align === 'right' ? pad.left + iW
+              : toX(i);
+    ctx.fillText(d, x, H - 6);
   });
 }
 
@@ -1604,7 +1692,8 @@ document.addEventListener('DOMContentLoaded', () => {
   oneYearAgo.setFullYear(today.getFullYear() - 1);
   document.getElementById('btTo').value   = today.toISOString().slice(0, 10);
   document.getElementById('btFrom').value = oneYearAgo.toISOString().slice(0, 10);
-  // hide extra sections by default (already done via style="display:none")
+  // Auto-fetch regime on load so it is primed before the user opens the tab
+  refreshRegimeNow().then(() => _startRegimeAutoRefresh());
 });
 
 /* ======================================================================= */
@@ -1747,38 +1836,255 @@ async function fetchNifty() {
 }
 
 /* ======================================================================= */
+/* Crude Oil tab                                                            */
+/* ======================================================================= */
+let _crudeSecIdDetected = false;
+let _crudeFuturesSecId = '';
+
+async function detectCrudeSecurityId(force = false) {
+  const inp   = document.getElementById('crudeSecurityId');
+  const label = document.getElementById('crudeSecIdLabel');
+  if (!inp) return;
+  if (label) label.textContent = '⏳ Detecting…';
+  try {
+    const url = '/api/crude/security_id' + (force ? '?force=1' : '');
+    const d = await api('GET', url);
+    if (d.error) throw new Error(d.error);
+    inp.value = d.security_id;
+    _crudeFuturesSecId = d.futures_security_id || d.security_id;
+    const expLabel = d.opt_expiries && d.opt_expiries.length ? ` · ${d.opt_expiries.length} expiries` : ` (exp ${escHtml(d.expiry)})`;
+    if (label) label.innerHTML = `<span style="color:var(--green)">✓</span> ${escHtml(d.display_name)}${expLabel}`;
+    _crudeSecIdDetected = true;
+    return d.security_id;
+  } catch(e) {
+    if (label) label.innerHTML = `<span style="color:var(--red)">⚠ ${escHtml(e.message)}</span>`;
+    return inp.value || '16429';
+  }
+}
+
+async function fetchCrude() {
+  const statsEl = document.getElementById('crudeStats');
+  const tableEl = document.getElementById('crudeTable');
+  const secId      = (document.getElementById('crudeSecurityId')?.value || '16429').trim();
+  const futuresId  = _crudeFuturesSecId || secId;
+  tableEl.innerHTML = '<div class="loading-overlay show"><div class="loading-spinner"></div><span>Fetching Crude Oil data…</span></div>';
+  try {
+    const url = `/api/crude/snapshot?security_id=${encodeURIComponent(secId)}&futures_security_id=${encodeURIComponent(futuresId)}&exchange_segment=MCX_COMM`;
+    const d = await api('GET', url);
+    if (d.error) throw new Error(d.error);
+    statsEl.innerHTML = `
+      <div class="stat-box"><div class="stat-label">Futures LTP</div><div class="stat-value plain">₹${fmt(d.spot_price)}</div></div>
+      <div class="stat-box"><div class="stat-label">Expiry</div><div class="stat-value plain" style="font-size:14px">${escHtml(d.expiry)}</div></div>
+      <div class="stat-box"><div class="stat-label">ATM Strike</div><div class="stat-value plain">₹${fmt(d.atm_strike, 0)}</div></div>
+      <div class="stat-box"><div class="stat-label">ATM Call LTP</div><div class="stat-value green">₹${fmt(d.atm_call?.ltp || 0)}</div></div>
+      <div class="stat-box"><div class="stat-label">ATM Put LTP</div><div class="stat-value red">₹${fmt(d.atm_put?.ltp || 0)}</div></div>
+      <div class="stat-box"><div class="stat-label">PCR</div><div class="stat-value plain">${fmt(d.pcr, 3)}</div></div>
+      <div class="stat-box"><div class="stat-label">Max Pain</div><div class="stat-value plain">₹${fmt(d.max_pain, 0)}</div></div>
+    `;
+    const rows = (d.strikes_near_atm || []).map(s => {
+      const isAtm = s.strike === d.atm_strike;
+      return `<tr ${isAtm ? 'style="background:rgba(245,158,11,.07)"' : ''}>
+        <td style="${isAtm ? 'font-weight:700;color:var(--orange)' : ''}">${s.strike}</td>
+        <td class="pos">₹${fmt(s.call_ltp)}</td>
+        <td>${(s.call_oi/1000).toFixed(1)}k</td>
+        <td>${fmt(s.call_iv, 1)}%</td>
+        <td class="neg">₹${fmt(s.put_ltp)}</td>
+        <td>${(s.put_oi/1000).toFixed(1)}k</td>
+        <td>${fmt(s.put_iv, 1)}%</td>
+      </tr>`;
+    }).join('');
+    tableEl.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Strike</th><th>Call LTP</th><th>Call OI</th><th>Call IV</th>
+          <th>Put LTP</th><th>Put OI</th><th>Put IV</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="text-align:right;font-size:11px;color:var(--text-muted);padding:8px 12px">
+        Updated: ${escHtml(d.timestamp || '')}
+      </div>`;
+  } catch(e) {
+    statsEl.innerHTML = '';
+    tableEl.innerHTML = `<div class="error-banner" style="margin:16px">${e.message}</div>`;
+  }
+}
+
+/* ======================================================================= */
 /* Regime tab                                                               */
 /* ======================================================================= */
+let _regimeAutoTimer  = null;
+let _regimeCountdown  = 0;
+let _regimeCountTimer = null;
+const REGIME_INTERVAL_SEC = 15 * 60;
+
+/* Shared helper: render regime data into a given set of element IDs */
+function _renderRegimeInto(d, badgeId, detailsId, barsId) {
+  const wrap = document.getElementById(badgeId);
+  const det  = document.getElementById(detailsId);
+  const bars = document.getElementById(barsId);
+  if (!wrap) return;
+
+  const cls   = 'regime-' + (d.regime || 'UNKNOWN');
+  const icons = { TRENDING_UP:'↑', TRENDING_DOWN:'↓', SIDEWAYS:'↔', VOLATILE:'⚡', UNKNOWN:'?' };
+  wrap.innerHTML = `
+    <span class="regime-badge ${cls}" style="font-size:15px;padding:6px 16px">
+      ${icons[d.regime] || '?'} ${escHtml(d.regime || 'UNKNOWN')}
+    </span>
+    <span style="margin-left:12px;font-size:12px;color:var(--text-muted)">Confidence: ${d.confidence || 0}%</span>`;
+
+  if (det) det.innerHTML = [
+    ['EMA 20', fmt(d.ema20, 2)],
+    ['EMA 50', fmt(d.ema50, 2)],
+    ['ADX',    fmt(d.adx, 1)],
+    ['ATR',    fmt(d.atr, 2)],
+    ['ATR %',  fmt(d.atr_ratio, 2) + '%'],
+    ['Bars',   d.bars || 0],
+  ].map(([k,v]) => `<div><span style="color:var(--text-muted)">${escHtml(k)}: </span><strong>${escHtml(String(v))}</strong></div>`).join('');
+
+  if (bars) {
+    const adxPct  = Math.min(100, ((d.adx  || 0) / 50) * 100);
+    const atrPct  = Math.min(100, ((d.atr_ratio || 0) / 3) * 100);
+    const emaDiff = d.ema20 && d.ema50 ? ((d.ema20 - d.ema50) / d.ema50 * 100).toFixed(2) : 0;
+    const emaColor = emaDiff >= 0 ? 'var(--green)' : 'var(--red)';
+    bars.innerHTML = `
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:var(--text-muted)">ADX (Trend Strength)</span>
+          <strong>${fmt(d.adx,1)} ${d.adx > 25 ? '— Trending' : '— Weak'}</strong>
+        </div>
+        <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${adxPct}%;background:${d.adx>25?'var(--green)':'var(--blue)'};border-radius:4px;transition:width .4s"></div>
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:var(--text-muted)">ATR % (Volatility)</span>
+          <strong>${fmt(d.atr_ratio,2)}% ${d.atr_ratio>2?'— High':'— Normal'}</strong>
+        </div>
+        <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${atrPct}%;background:${d.atr_ratio>2?'var(--orange)':'var(--blue)'};border-radius:4px;transition:width .4s"></div>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:var(--text-muted)">EMA20 vs EMA50</span>
+          <strong style="color:${emaColor}">${emaDiff >= 0 ? '+' : ''}${emaDiff}%</strong>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted)">
+          EMA20 ${fmt(d.ema20,2)} &nbsp;·&nbsp; EMA50 ${fmt(d.ema50,2)}
+        </div>
+      </div>`;
+  }
+}
+
+function _renderRegime(d) {
+  _renderRegimeInto(d, 'regimeBadgeWrap', 'regimeDetails', 'regimeIndicatorBars');
+}
+function _renderCrudeRegime(d) {
+  _renderRegimeInto(d, 'crudeRegimeBadgeWrap', 'crudeRegimeDetails', 'crudeRegimeIndicatorBars');
+}
+
+function _startRegimeCountdown() {
+  _regimeCountdown = REGIME_INTERVAL_SEC;
+  clearInterval(_regimeCountTimer);
+  _regimeCountTimer = setInterval(() => {
+    _regimeCountdown--;
+    const el = document.getElementById('regimeNextRefresh');
+    if (el) {
+      const m = Math.floor(_regimeCountdown / 60);
+      const s = _regimeCountdown % 60;
+      el.textContent = `Next refresh in ${m}:${String(s).padStart(2,'0')}`;
+    }
+    if (_regimeCountdown <= 0) clearInterval(_regimeCountTimer);
+  }, 1000);
+}
+
 async function loadRegime() {
   try {
     const d = await api('GET', '/api/regime');
-    const wrap = document.getElementById('regimeBadgeWrap');
-    const cls  = 'regime-' + (d.regime || 'UNKNOWN');
-    const icons = { TRENDING_UP:'↑', TRENDING_DOWN:'↓', SIDEWAYS:'↔', VOLATILE:'⚡', UNKNOWN:'?' };
-    wrap.innerHTML = `<span class="regime-badge ${cls}">${icons[d.regime] || '?'} ${escHtml(d.regime || 'UNKNOWN')}</span>
-      <span style="margin-left:12px;font-size:12px;color:var(--text-muted)">Confidence: ${d.confidence || 0}%</span>`;
-    const det = document.getElementById('regimeDetails');
-    det.innerHTML = [
-      ['EMA 20', `₹${fmt(d.ema20, 2)}`],
-      ['EMA 50', `₹${fmt(d.ema50, 2)}`],
-      ['ADX',    fmt(d.adx, 1)],
-      ['ATR',    fmt(d.atr, 2)],
-      ['ATR %',  fmt(d.atr_ratio, 2) + '%'],
-      ['Bars',   d.bars || 0],
-    ].map(([k,v]) => `<div><span style="color:var(--text-muted)">${escHtml(k)}: </span><strong>${escHtml(String(v))}</strong></div>`).join('');
+    _renderRegime(d);
+    if (d.bars === 0 || d.regime === 'UNKNOWN') await refreshNiftyRegime();
   } catch(e) { toast('Regime load failed: ' + e.message, 'error'); }
+  // Also load crude (silent)
+  try {
+    const c = await api('GET', '/api/regime/crude');
+    _renderCrudeRegime(c);
+  } catch(_) {}
+}
+
+async function refreshNiftyRegime() {
+  try {
+    const d = await api('POST', '/api/regime/refresh');
+    _renderRegime(d);
+    toast(`NIFTY regime: ${d.regime} (ADX ${fmt(d.adx,1)})`, 'success');
+  } catch(e) { toast('NIFTY regime refresh failed: ' + e.message, 'error'); }
+}
+
+async function refreshCrudeRegime() {
+  // Priority: detected futures ID → strategy params → send nothing (server picks from cache)
+  let secId = _crudeFuturesSecId || '';
+  if (!secId) {
+    try {
+      const strategies = await api('GET', '/api/strategies');
+      const crude = strategies.find(s => s.id === 'ema_crossover_crude');
+      if (crude?.params?.futures_security_id) secId = String(crude.params.futures_security_id);
+    } catch(_) {}
+  }
+  try {
+    const body = secId ? { security_id: secId, exchange_segment: 'MCX_COMM' } : { exchange_segment: 'MCX_COMM' };
+    const d = await api('POST', '/api/regime/crude/refresh', body);
+    _renderCrudeRegime(d);
+    toast(`Crude Oil regime: ${d.regime} (ADX ${fmt(d.adx,1)})`, 'success');
+  } catch(e) { toast('Crude Oil regime refresh failed: ' + e.message, 'error'); }
+}
+
+async function refreshRegimeNow() {
+  const btn = document.getElementById('btnRegimeRefresh');
+  const lu  = document.getElementById('regimeLastUpdated');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Fetching…'; }
+  if (lu)  { lu.textContent = 'Fetching 1-min data for NIFTY50 & Crude Oil…'; }
+  try {
+    // Refresh both in parallel
+    const [nifty, crude] = await Promise.allSettled([
+      api('POST', '/api/regime/refresh'),
+      (async () => {
+        let secId = _crudeFuturesSecId || '';
+        if (!secId) {
+          try {
+            const strategies = await api('GET', '/api/strategies');
+            const cs = strategies.find(s => s.id === 'ema_crossover_crude');
+            if (cs?.params?.futures_security_id) secId = String(cs.params.futures_security_id);
+          } catch(_) {}
+        }
+        const body = secId ? { security_id: secId, exchange_segment: 'MCX_COMM' } : { exchange_segment: 'MCX_COMM' };
+        return api('POST', '/api/regime/crude/refresh', body);
+      })(),
+    ]);
+    if (nifty.status === 'fulfilled') _renderRegime(nifty.value);
+    if (crude.status === 'fulfilled') _renderCrudeRegime(crude.value);
+    const now = new Date().toLocaleTimeString();
+    const nBars = nifty.value?.bars || 0;
+    const cBars = crude.value?.bars || 0;
+    if (lu) lu.innerHTML = `<span style="color:var(--green)">✓</span> Last updated: ${now} &nbsp;·&nbsp; NIFTY: ${nBars} bars · Crude: ${cBars} bars`;
+    _startRegimeCountdown();
+  } catch(e) {
+    if (lu) lu.textContent = 'Refresh failed — check credentials';
+    toast('Regime refresh failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Refresh Now'; }
+  }
+}
+
+function _startRegimeAutoRefresh() {
+  clearInterval(_regimeAutoTimer);
+  _regimeAutoTimer = setInterval(async () => {
+    await refreshRegimeNow();
+  }, REGIME_INTERVAL_SEC * 1000);
 }
 
 async function updateRegime() {
-  const price = parseFloat(document.getElementById('regimePrice')?.value || 0);
-  const high  = parseFloat(document.getElementById('regimeHigh')?.value  || 0);
-  const low   = parseFloat(document.getElementById('regimeLow')?.value   || 0);
-  if (!price) { toast('Enter a close price', 'error'); return; }
-  try {
-    await api('POST', '/api/regime/update', { price, high, low });
-    await loadRegime();
-    toast('Regime updated');
-  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+  await refreshRegimeNow();
 }
 
 /* ======================================================================= */
@@ -1791,23 +2097,28 @@ async function loadOptionsTrading() {
   const btn  = document.getElementById('btnMasterTrading');
   const banner = document.getElementById('tradingStatusBanner');
   try {
-    const [strategies, statusData, regime] = await Promise.all([
+    const [strategies, statusData, regime, crudeRegime] = await Promise.all([
       api('GET', '/api/strategies'),
       api('GET', '/api/trading/status'),
       api('GET', '/api/regime'),
+      api('GET', '/api/regime/crude').catch(() => ({ regime: 'UNKNOWN' })),
     ]);
     _tradingActive = statusData.active;
     updateTradingBtn();
-    // Refresh regime in banner
-    const regimeCls = 'regime-' + (regime.regime || 'UNKNOWN');
     banner.style.display = 'flex';
     banner.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:8px;font-size:13px;background:var(--bg-card);border:1px solid var(--border);margin-bottom:16px';
-    banner.innerHTML = `<span>Market Regime:</span>
-      <span class="regime-badge regime-${escHtml(regime.regime)}" style="font-size:12px;padding:3px 10px">${escHtml(regime.regime || 'UNKNOWN')}</span>`;
+    banner.innerHTML = `
+      <span>NIFTY50:</span>
+      <span class="regime-badge regime-${escHtml(regime.regime)}" style="font-size:12px;padding:3px 10px">${escHtml(regime.regime || 'UNKNOWN')}</span>
+      <span style="margin-left:12px">Crude Oil:</span>
+      <span class="regime-badge regime-${escHtml(crudeRegime.regime)}" style="font-size:12px;padding:3px 10px">${escHtml(crudeRegime.regime || 'UNKNOWN')}</span>`;
 
-    const options = strategies.filter(s => s.asset_type === 'options');
+    const options = strategies.filter(s => s.asset_type === 'options' || s.asset_type === 'crude_options');
     grid.innerHTML = '';
-    options.forEach(s => grid.appendChild(buildOptionCard(s, regime.regime)));
+    options.forEach(s => {
+      const cardRegime = s.asset_type === 'crude_options' ? crudeRegime.regime : regime.regime;
+      grid.appendChild(buildOptionCard(s, cardRegime));
+    });
   } catch(e) {
     grid.innerHTML = `<div class="error-banner" style="grid-column:1/-1">Failed: ${e.message}</div>`;
   }
@@ -1855,8 +2166,119 @@ function buildOptionCard(s, regime) {
     </div>
     <div class="card-actions">
       <button class="btn btn-ghost" onclick="showStrategyTrades('${s.id}', '${escHtml(s.name)}')">📋 View Trades</button>
+      <button class="btn btn-ghost" onclick="toggleStrategyLog('${s.id}')">📜 Log</button>
+    </div>
+    <div class="log-panel" id="log-panel-${s.id}">
+      <div class="log-panel-title">Activity Log</div>
+      <div class="log-loading" style="color:var(--text-muted);font-size:12px;padding:8px 0">Loading…</div>
     </div>`;
   return div;
+}
+
+function toggleStrategyLog(strategyId) {
+  const panel = document.getElementById(`log-panel-${strategyId}`);
+  const isOpen = panel.classList.toggle('open');
+  if (isOpen) {
+    loadStrategyLog(strategyId);
+    // Start auto-refresh every 60s while panel is open
+    const timerId = setInterval(() => {
+      const p = document.getElementById(`log-panel-${strategyId}`);
+      if (p && p.classList.contains('open')) {
+        loadStrategyLog(strategyId);
+      } else {
+        clearInterval(timerId); // panel closed — stop polling
+      }
+    }, 60_000);
+    panel.dataset.timerId = timerId;
+  } else {
+    clearInterval(panel.dataset.timerId);
+  }
+}
+
+async function loadStrategyLog(strategyId) {
+  const panel = document.getElementById(`log-panel-${strategyId}`);
+  const title = panel.querySelector('.log-panel-title');
+  // Clear previous content (keep title + loading placeholder)
+  panel.querySelectorAll('.log-entry, .log-empty, .log-err, .log-section-hdr, .signal-entry').forEach(el => el.remove());
+  const loadingEl = panel.querySelector('.log-loading') ||
+    panel.appendChild(Object.assign(document.createElement('div'), {
+      className: 'log-loading',
+      style: 'color:var(--text-muted);font-size:12px;padding:8px 0',
+      textContent: 'Loading…',
+    }));
+
+  try {
+    // Fetch signal log + trade history in parallel
+    const [signalLog, trades] = await Promise.all([
+      api('GET', `/api/strategies/${encodeURIComponent(strategyId)}/signal_log`).catch(() => []),
+      api('GET', `/api/trades?strategy_id=${encodeURIComponent(strategyId)}&status=all`).catch(() => []),
+    ]);
+    loadingEl.remove();
+
+    // ---- Signal log section ----
+    if (signalLog.length) {
+      const MAX_TICKS = 50;
+      const hdr = document.createElement('div');
+      hdr.className = 'log-section-hdr';
+      hdr.style.cssText = 'font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--text-muted);text-transform:uppercase;padding:6px 0 4px;border-bottom:1px solid var(--border);margin-bottom:6px';
+      const refreshedAt = new Date().toLocaleTimeString();
+      hdr.textContent = `Signal Log — last ${Math.min(signalLog.length, MAX_TICKS)} ticks  (refreshed ${refreshedAt})`;
+      panel.appendChild(hdr);
+
+      // Show last MAX_TICKS entries, newest first
+      [...signalLog].reverse().slice(0, MAX_TICKS).forEach(e => {
+        const el = document.createElement('div');
+        el.className = 'signal-entry';
+        const lvl = e.level || 'info';
+        const color = lvl === 'signal' ? 'var(--green)' : lvl === 'debug' ? 'var(--text-dim)' : 'var(--text)';
+        el.style.cssText = `font-size:11.5px;padding:3px 0;color:${color};font-family:monospace;border-bottom:1px solid rgba(255,255,255,.04)`;
+        el.innerHTML = `<span style="color:var(--text-muted);margin-right:8px">${escHtml(e.ts)}</span>${escHtml(e.msg)}`;
+        panel.appendChild(el);
+      });
+    }
+
+    // ---- Trade history section ----
+    const tHdr = document.createElement('div');
+    tHdr.className = 'log-section-hdr';
+    tHdr.style.cssText = 'font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--text-muted);text-transform:uppercase;padding:10px 0 4px;border-bottom:1px solid var(--border);margin-bottom:6px;margin-top:4px';
+    tHdr.textContent = `Trade History (${trades.length})`;
+    panel.appendChild(tHdr);
+
+    if (title) title.textContent = `Activity Log · ${trades.length} trade${trades.length !== 1 ? 's' : ''} · ${signalLog.length} signal ticks`;
+
+    if (!trades.length) {
+      const empty = document.createElement('div');
+      empty.className = 'log-empty';
+      empty.style.cssText = 'color:var(--text-muted);font-size:12px;padding:8px 0;text-align:center';
+      empty.textContent = 'No trades recorded yet';
+      panel.appendChild(empty);
+    } else {
+      [...trades].reverse().slice(0, 10).forEach(t => {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        const pnlColor  = t.status === 'OPEN' ? 'var(--blue)' : (t.pnl >= 0 ? 'var(--green)' : 'var(--red)');
+        const pnlText   = t.status === 'OPEN' ? 'OPEN'
+                        : (t.pnl >= 0 ? '+₹' : '−₹') + fmt(Math.abs(t.pnl));
+        const timeStr   = (t.entry_time || '').slice(0, 16).replace('T', ' ');
+        const actionCls = (t.action || '').toUpperCase() === 'BUY' ? 'log-action-buy' : 'log-action-sell';
+        entry.innerHTML = `
+          <span class="log-time">${escHtml(timeStr)}</span>
+          <span class="${actionCls}">${escHtml(t.action)}</span>
+          <span class="log-symbol">${escHtml(t.symbol)}</span>
+          <span style="color:var(--text-muted)">×${t.quantity}</span>
+          <span style="color:var(--text-dim)">@₹${fmt(t.entry_price)}</span>
+          <span class="log-pnl" style="color:${pnlColor}">${escHtml(pnlText)}</span>`;
+        panel.appendChild(entry);
+      });
+    }
+  } catch (e) {
+    if (loadingEl.parentNode) loadingEl.remove();
+    const errEl = document.createElement('div');
+    errEl.className = 'log-err';
+    errEl.style.cssText = 'color:var(--red);font-size:12px;padding:8px 0';
+    errEl.textContent = e.message;
+    panel.appendChild(errEl);
+  }
 }
 
 function updateTradingBtn() {

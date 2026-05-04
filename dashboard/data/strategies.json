@@ -1,6 +1,6 @@
 {
   "moving_average_cross": {
-    "enabled": true,
+    "enabled": false,
     "params": {
       "symbol": "RELIANCE",
       "security_id": "2885",
@@ -23,7 +23,7 @@
     }
   },
   "bollinger_bands": {
-    "enabled": true,
+    "enabled": false,
     "params": {
       "symbol": "INFY",
       "security_id": "10999",
@@ -34,7 +34,7 @@
     }
   },
   "short_straddle": {
-    "enabled": true,
+    "enabled": false,
     "params": {
       "under_security_id": 13,
       "under_exchange_segment": "IDX_I",
@@ -44,7 +44,7 @@
     }
   },
   "pcr": {
-    "enabled": true,
+    "enabled": false,
     "params": {
       "under_security_id": 13,
       "under_exchange_segment": "IDX_I",
@@ -53,5 +53,112 @@
       "quantity": 1,
       "product_type": "INTRADAY"
     }
+  },
+  "bear_put_spread": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "otm_distance": 1,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "iron_condor": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "short_otm_distance": 1,
+      "long_otm_distance": 2,
+      "min_iv_threshold": 15.0,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "ema_crossover_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "futures_security_id": "13",
+      "fast_period": 9,
+      "slow_period": 21,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "iron_butterfly": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "wing_distance": 1,
+      "min_iv_threshold": 15.0,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "bull_put_spread": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "otm_distance": 1,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "bear_call_spread": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "otm_distance": 1,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "bull_call_spread": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "otm_distance": 1,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "long_strangle": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "otm_distance": 1,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "long_straddle": {
+    "enabled": false,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "ema_crossover_crude": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 488290,
+      "under_exchange_segment": "MCX_COMM",
+      "futures_security_id": "488290",
+      "fast_period": 9,
+      "slow_period": 21,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    },
+    "regime_override": null
   }
 }

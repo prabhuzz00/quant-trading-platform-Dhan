@@ -148,6 +148,14 @@ class DataFetcher:
                     interval=interval,
                 )
             data = response.get("data", {})
+            raw_ts = data.get("timestamp", [])
+            # Dhan API may return numeric Unix-second timestamps (e.g. 1746350400).
+            # pd.to_datetime() treats bare integers as *nanoseconds*, which gives
+            # 1970-01-01.  Detect numeric values and convert with unit='s' instead.
+            if raw_ts and isinstance(raw_ts[0], (int, float)):
+                ts_index = pd.to_datetime(raw_ts, unit="s")
+            else:
+                ts_index = pd.to_datetime(raw_ts)
             df = pd.DataFrame(
                 {
                     "open": data.get("open", []),
@@ -156,7 +164,7 @@ class DataFetcher:
                     "close": data.get("close", []),
                     "volume": data.get("volume", []),
                 },
-                index=pd.to_datetime(data.get("timestamp", [])),
+                index=ts_index,
             )
             df.index.name = "datetime"
             logger.info(
@@ -191,7 +199,12 @@ class DataFetcher:
             logger.warning("No data returned by yfinance for %s", ticker_symbol)
             return df
 
-        df.columns = [c.lower() for c in df.columns]
+        # yfinance >= 0.2.38 returns MultiIndex columns like ('Close', 'TICKER').
+        # Flatten to simple lowercase strings.
+        if hasattr(df.columns, "levels"):
+            df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
+        else:
+            df.columns = [c.lower() for c in df.columns]
         df.index.name = "datetime"
         logger.info(
             "Fetched %d rows from yfinance for %s", len(df), ticker_symbol

@@ -43,11 +43,16 @@ from dashboard.regime_finder import (
     get_current_regime,
     update_regime,
     get_regime_details,
+    auto_refresh_regime,
+    get_crude_regime_details,
+    update_crude_regime,
+    auto_refresh_crude_regime,
 )
 from src.backtesting.backtester import Backtester
 from src.broker.dhan_broker import DhanBroker
 from src.data.data_fetcher import DataFetcher
 from src.utils.logger import load_config
+from dashboard.trading_engine import get_engine
 
 load_dotenv()
 
@@ -56,6 +61,32 @@ _CONFIG_PATH = os.path.join(_REPO_ROOT, "config", "config.yaml")
 _CREDENTIALS_FILE = Path(__file__).parent / "data" / "credentials.json"
 
 app = Flask(__name__, template_folder="templates")
+
+
+# ---------------------------------------------------------------------------
+# Custom JSON encoder – makes Flask serialize numpy scalar types cleanly
+# ---------------------------------------------------------------------------
+
+class _NumpyEncoder(json.JSONEncoder):
+    """Extend the default encoder to handle numpy int/float/bool scalars."""
+
+    def default(self, obj: object) -> object:
+        try:
+            import numpy as np  # noqa: PLC0415
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+        except ImportError:
+            pass
+        return super().default(obj)
+
+
+app.json_encoder = _NumpyEncoder  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +123,8 @@ def update_strategy_params(strategy_id: str):
     result = update_params(strategy_id, params)
     if result is None:
         return jsonify({"error": "Strategy not found"}), 404
+    # Drop cached instance so it is rebuilt with the new params on next tick
+    get_engine().invalidate_instance(strategy_id)
     return jsonify(result)
 
 
@@ -382,6 +415,17 @@ def regime_status():
     return jsonify(get_regime_details())
 
 
+@app.route("/api/regime/refresh", methods=["POST"])
+def regime_refresh():
+    """Fetch latest NIFTY50 1-min data and re-compute the regime."""
+    try:
+        broker = DhanBroker(paper_trade=True)
+        details = auto_refresh_regime(broker)
+        return jsonify(details)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Regime refresh failed: {exc}"}), 500
+
+
 @app.route("/api/regime/update", methods=["POST"])
 def regime_update():
     body  = request.get_json(silent=True) or {}
@@ -394,6 +438,57 @@ def regime_update():
     return jsonify(get_regime_details())
 
 
+# ---- Crude Oil regime -------------------------------------------------------
+
+
+@app.route("/api/regime/crude", methods=["GET"])
+def crude_regime_status():
+    return jsonify(get_crude_regime_details())
+
+
+@app.route("/api/regime/crude/refresh", methods=["POST"])
+def crude_regime_refresh():
+    """Fetch latest Crude Oil Futures 1-min data and re-compute the regime."""
+    body = request.get_json(silent=True) or {}
+    # Prefer body param → scrip-master cache → strategy params → hard fallback
+    security_id = str(body.get("security_id", "")).strip()
+    if not security_id:
+        security_id = str(_crude_security_id_cache.get("futures_security_id", "")).strip()
+    if not security_id:
+        # Last resort: read from ema_crossover_crude strategy params
+        try:
+            from dashboard.strategy_manager import get_strategy  # noqa: PLC0415
+            s = get_strategy("ema_crossover_crude")
+            if s:
+                security_id = str(s.get("params", {}).get("futures_security_id", "")).strip()
+        except Exception:  # noqa: BLE001
+            pass
+    if not security_id:
+        security_id = "488290"  # known MCX Crude May-2026 – better than 16429
+    exchange_segment = str(body.get("exchange_segment", "MCX_COMM"))
+    try:
+        broker = DhanBroker(paper_trade=True)
+        details = auto_refresh_crude_regime(
+            broker, security_id=security_id, exchange_segment=exchange_segment
+        )
+        return jsonify(details)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Crude regime refresh failed: {exc}"}), 500
+
+
+# ---- Strategy signal log ---------------------------------------------------
+
+
+@app.route("/api/strategies/<sid>/signal_log", methods=["GET"])
+def strategy_signal_log(sid: str):
+    """Return the in-memory signal log for a running strategy instance."""
+    engine = get_engine()
+    instance = engine.get_instance(sid)
+    if instance is None:
+        return jsonify([])
+    return jsonify(list(instance._signal_log))
+
+
 # ---------------------------------------------------------------------------
 # Trading state (master on/off)
 # ---------------------------------------------------------------------------
@@ -401,19 +496,33 @@ def regime_update():
 
 @app.route("/api/trading/status", methods=["GET"])
 def trading_status():
-    return jsonify({"active": get_trading_active()})
+    engine = get_engine()
+    return jsonify({"active": get_trading_active(), "running": engine.is_running()})
 
 
 @app.route("/api/trading/start", methods=["POST"])
 def trading_start():
     set_trading_active(True)
-    return jsonify({"active": True})
+    try:
+        broker = DhanBroker(paper_trade=True)
+        # Seed regime immediately so strategies see a valid regime from the first tick
+        try:
+            auto_refresh_regime(broker)
+        except Exception as exc:  # noqa: BLE001
+            pass  # non-fatal — regime will refresh on the first engine tick
+        engine = get_engine()
+        engine.invalidate_all()
+        engine.start(broker, paper_trade=True)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"active": True, "running": False, "warning": str(exc)})
+    return jsonify({"active": True, "running": engine.is_running()})
 
 
 @app.route("/api/trading/stop", methods=["POST"])
 def trading_stop():
     set_trading_active(False)
-    return jsonify({"active": False})
+    get_engine().stop()
+    return jsonify({"active": False, "running": False})
 
 
 # ---------------------------------------------------------------------------
@@ -462,15 +571,15 @@ def nifty_snapshot():
         strikes_data = []
         for _, row in near_atm.iterrows():
             strikes_data.append({
-                "strike":     row["strike_price"],
-                "call_sid":   row["call_security_id"],
-                "call_ltp":   row["call_ltp"],
-                "call_oi":    row["call_oi"],
-                "call_iv":    row["call_iv"],
-                "put_sid":    row["put_security_id"],
-                "put_ltp":    row["put_ltp"],
-                "put_oi":     row["put_oi"],
-                "put_iv":     row["put_iv"],
+                "strike":     float(row["strike_price"]),
+                "call_sid":   str(row["call_security_id"]),
+                "call_ltp":   float(row["call_ltp"]),
+                "call_oi":    int(row["call_oi"]),
+                "call_iv":    float(row["call_iv"]),
+                "put_sid":    str(row["put_security_id"]),
+                "put_ltp":    float(row["put_ltp"]),
+                "put_oi":     int(row["put_oi"]),
+                "put_iv":     float(row["put_iv"]),
             })
 
         return jsonify({
@@ -487,6 +596,245 @@ def nifty_snapshot():
 
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"Failed to fetch NIFTY snapshot: {exc}"}), 500
+
+
+# ---------------------------------------------------------------------------
+# Crude Oil instrument lookup
+# ---------------------------------------------------------------------------
+
+_DHAN_SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
+_crude_security_id_cache: dict = {}   # {"security_id": str, "expiry": str, "fetched_at": float}
+
+
+@app.route("/api/crude/security_id", methods=["GET"])
+def crude_security_id():
+    """Auto-detect MCX Crude Oil security IDs from Dhan's instrument master CSV.
+
+    Returns:
+      security_id          – option-chain underlying ID (from MCX_OPT OPTFUT rows, or futures ID as fallback)
+      futures_security_id  – near-month FUTCOM contract ID (for LTP)
+      opt_expiries         – list of upcoming option expiry dates from scrip master
+      exchange_segment     – always MCX_COMM
+    """
+    import csv
+    import io
+    import time
+    import urllib.request
+    import datetime
+
+    force = request.args.get("force", "0") == "1"
+    cache_ttl = 3600
+
+    if not force and _crude_security_id_cache.get("fetched_at", 0) + cache_ttl > time.time():
+        return jsonify(_crude_security_id_cache)
+
+    try:
+        req = urllib.request.Request(
+            _DHAN_SCRIP_MASTER_URL,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            raw = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Failed to download instrument master: {exc}"}), 500
+
+    try:
+        today = datetime.date.today()
+        reader = csv.DictReader(io.StringIO(raw))
+        # Actual scrip master columns (confirmed from live CSV 2026-05):
+        #   SEM_EXM_EXCH_ID     → exchange short code, e.g. "MCX"
+        #   SEM_INSTRUMENT_NAME → "FUTCOM" | "OPTFUT"
+        #   SM_SYMBOL_NAME      → base name, e.g. "CRUDEOIL"
+        #   SEM_TRADING_SYMBOL  → full symbol, e.g. "CRUDEOIL-18May2026-FUT"
+        #   SEM_CUSTOM_SYMBOL   → friendly name, e.g. "CRUDEOIL MAY FUT"
+        #   SEM_SMST_SECURITY_ID → security ID
+        #   SEM_EXPIRY_DATE     → "2026-05-18 23:30:00"  (take first 10 chars)
+
+        best_futcom: dict | None = None
+        opt_expiries: list[str] = []
+
+        for row in reader:
+            exc_id     = row.get("SEM_EXM_EXCH_ID", "").strip()
+            instrument = row.get("SEM_INSTRUMENT_NAME", "").strip()
+            sym_name   = row.get("SM_SYMBOL_NAME", "").strip().upper()
+            trading    = row.get("SEM_TRADING_SYMBOL", "").strip().upper()
+
+            if exc_id != "MCX":
+                continue
+            if "CRUDE" not in sym_name and "CRUDE" not in trading:
+                continue
+
+            exp_str = row.get("SEM_EXPIRY_DATE", "").strip()[:10]
+            try:
+                exp_date = datetime.date.fromisoformat(exp_str)
+            except ValueError:
+                continue
+            if exp_date < today:
+                continue
+
+            if instrument == "FUTCOM":
+                if best_futcom is None or exp_date < best_futcom["exp_date"]:
+                    best_futcom = {
+                        "security_id":  row.get("SEM_SMST_SECURITY_ID", "").strip(),
+                        "display_name": row.get("SEM_CUSTOM_SYMBOL", trading).strip(),
+                        "expiry":       exp_date.isoformat(),
+                        "exp_date":     exp_date,
+                    }
+            elif instrument == "OPTFUT":
+                iso = exp_date.isoformat()
+                if iso not in opt_expiries:
+                    opt_expiries.append(iso)
+
+        if not best_futcom:
+            return jsonify({"error": "No active MCX CRUDEOIL FUTCOM contract found in instrument master"}), 404
+
+        opt_expiries.sort()
+        futures_sid = best_futcom["security_id"]
+
+        result = {
+            "security_id":         futures_sid,   # FUTCOM id → used for expiry_list API
+            "futures_security_id": futures_sid,
+            "display_name":        best_futcom["display_name"],
+            "expiry":              best_futcom["expiry"],
+            "opt_expiries":        opt_expiries[:6],
+            "exchange_segment":    "MCX_COMM",
+            "instrument":          "FUTCOM",
+            "fetched_at":          time.time(),
+        }
+        _crude_security_id_cache.clear()
+        _crude_security_id_cache.update(result)
+        return jsonify(result)
+
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Failed to parse instrument master: {exc}"}), 500
+
+
+# ---------------------------------------------------------------------------
+# Crude Oil snapshot
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/crude/snapshot", methods=["GET"])
+def crude_snapshot():
+    """Fetch MCX Crude Oil option chain snapshot via the Dhan API.
+
+    Query params:
+      security_id          – option-chain underlying security ID (from /api/crude/security_id)
+      futures_security_id  – FUTCOM contract ID for LTP (defaults to security_id)
+      exchange_segment     – defaults to MCX_COMM
+    """
+    import datetime
+
+    under_security_id      = int(request.args.get("security_id", 488290))
+    futures_security_id    = str(request.args.get("futures_security_id", "")) or str(under_security_id)
+    under_exchange_segment = str(request.args.get("exchange_segment", "MCX_COMM"))
+
+    try:
+        broker = DhanBroker(paper_trade=True)
+        from src.data.option_chain import OptionChainFetcher
+
+        fetcher = OptionChainFetcher(broker)
+        expiries = fetcher.get_expiry_list(
+            under_security_id=under_security_id,
+            under_exchange_segment=under_exchange_segment,
+        )
+
+        # Fallback: pull expiry dates from the scrip-master cache
+        if not expiries:
+            expiries = _crude_security_id_cache.get("opt_expiries", [])
+
+        # Last resort: re-detect from scrip master synchronously
+        if not expiries:
+            try:
+                import csv, io, urllib.request
+                req = urllib.request.Request(
+                    _DHAN_SCRIP_MASTER_URL, headers={"User-Agent": "Mozilla/5.0"}
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+                    raw_csv = resp.read().decode("utf-8", errors="replace")
+                today = datetime.date.today()
+                seen: set[str] = set()
+                for row in csv.DictReader(io.StringIO(raw_csv)):
+                    if (
+                        row.get("SEM_EXM_EXCH_ID", "").strip() == "MCX"
+                        and row.get("SEM_INSTRUMENT_NAME", "").strip() == "OPTFUT"
+                        and "CRUDE" in row.get("SM_SYMBOL_NAME", "").upper()
+                    ):
+                        exp_str = row.get("SEM_EXPIRY_DATE", "").strip()[:10]
+                        try:
+                            ed = datetime.date.fromisoformat(exp_str)
+                        except ValueError:
+                            continue
+                        if ed >= today:
+                            iso = ed.isoformat()
+                            if iso not in seen:
+                                seen.add(iso)
+                                expiries.append(iso)
+                expiries.sort()
+            except Exception:
+                pass
+
+        if not expiries:
+            return jsonify({"error": (
+                f"No expiry data found for MCX Crude Oil (security_id={under_security_id}). "
+                "Use the 🔍 button to auto-detect the correct security_id, then refresh."
+            )}), 400
+
+        expiry = expiries[0]
+        chain = fetcher.get_option_chain(
+            under_security_id=under_security_id,
+            under_exchange_segment=under_exchange_segment,
+            expiry=expiry,
+        )
+        if chain.empty:
+            return jsonify({"error": "Empty option chain returned."}), 400
+
+        # Spot price from futures LTP (use futures_security_id, not the OC underlying ID)
+        spot_price = broker.get_ltp(futures_security_id, under_exchange_segment)
+        if spot_price <= 0:
+            spot_price = fetcher.get_spot_price(
+                under_security_id=under_security_id,
+                under_exchange_segment=under_exchange_segment,
+                expiry=expiry,
+            )
+        if spot_price <= 0 and not chain.empty:
+            spot_price = float(chain["strike_price"].median())
+
+        atm      = fetcher.get_atm_options(chain, spot_price)
+        pcr      = fetcher.calculate_pcr(chain)
+        max_pain = fetcher.get_max_pain(chain)
+        near_atm = fetcher.get_strikes_near_atm(chain, spot_price, n_strikes=5)
+
+        strikes_data = []
+        for _, row in near_atm.iterrows():
+            strikes_data.append({
+                "strike":   float(row["strike_price"]),
+                "call_sid": str(row["call_security_id"]),
+                "call_ltp": float(row["call_ltp"]),
+                "call_oi":  int(row["call_oi"]),
+                "call_iv":  float(row["call_iv"]),
+                "put_sid":  str(row["put_security_id"]),
+                "put_ltp":  float(row["put_ltp"]),
+                "put_oi":   int(row["put_oi"]),
+                "put_iv":   float(row["put_iv"]),
+            })
+
+        return jsonify({
+            "spot_price":       round(spot_price, 2),
+            "expiry":           expiry,
+            "security_id":      under_security_id,
+            "exchange_segment": under_exchange_segment,
+            "atm_strike":       atm.get("strike_price", 0),
+            "atm_call":         atm.get("call", {}),
+            "atm_put":          atm.get("put", {}),
+            "strikes_near_atm": strikes_data,
+            "pcr":              round(pcr, 3),
+            "max_pain":         round(max_pain, 2),
+            "timestamp":        datetime.datetime.now().isoformat(timespec="seconds"),
+        })
+
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Failed to fetch Crude Oil snapshot: {exc}"}), 500
 
 
 # ---------------------------------------------------------------------------

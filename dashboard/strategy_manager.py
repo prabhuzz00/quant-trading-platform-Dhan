@@ -666,6 +666,72 @@ STRATEGY_CATALOG: dict[str, dict] = {
             {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
         ],
     },
+    # -------------------------------------------------------------------------
+    # EMA crossover on MCX Crude Oil futures
+    # -------------------------------------------------------------------------
+    "ema_crossover_crude": {
+        "name": "EMA Crossover Crude Oil (9/21)",
+        "type": "Trend Following",
+        "type_color": "orange",
+        "description": (
+            "Uses EMA(9) vs EMA(21) on MCX Crude Oil Futures to detect trend crossovers, "
+            "then trades the ATM Call (golden cross) or ATM Put (death cross) at current LTP. "
+            "Set the Futures Security ID to the current near-month MCX Crude Oil contract."
+        ),
+        "asset_type": "crude_options",
+        "regime_controlled": True,
+        "param_schema": [
+            {
+                "key": "under_security_id",
+                "label": "Underlying Security ID (MCX Crude Near Month)",
+                "type": "number",
+                "default": 488290,
+                "min": 1,
+                "max": 9999999,
+                "step": 1,
+            },
+            {
+                "key": "under_exchange_segment",
+                "label": "Underlying Segment",
+                "type": "text",
+                "default": "MCX_COMM",
+            },
+            {
+                "key": "futures_security_id",
+                "label": "Futures Security ID (for LTP/EMA)",
+                "type": "text",
+                "default": "488290",
+            },
+            {
+                "key": "fast_period",
+                "label": "Fast EMA Period",
+                "type": "number",
+                "default": 9,
+                "min": 2,
+                "max": 50,
+                "step": 1,
+            },
+            {
+                "key": "slow_period",
+                "label": "Slow EMA Period",
+                "type": "number",
+                "default": 21,
+                "min": 5,
+                "max": 200,
+                "step": 1,
+            },
+            {
+                "key": "quantity",
+                "label": "Lots per Leg",
+                "type": "number",
+                "default": 1,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+            },
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
 }
 
 
@@ -897,6 +963,18 @@ def build_strategy_instance(strategy_id: str, params: dict) -> Any:
             under_security_id=int(params.get("under_security_id", 13)),
             under_exchange_segment=str(params.get("under_exchange_segment", "IDX_I")),
             futures_security_id=str(params.get("futures_security_id", "13")),
+            fast_period=int(params.get("fast_period", 9)),
+            slow_period=int(params.get("slow_period", 21)),
+            quantity=int(params.get("quantity", 1)),
+            product_type=str(params.get("product_type", "INTRADAY")),
+        )
+    if strategy_id == "ema_crossover_crude":
+        from src.strategy.ema_crossover_strategy import EMACrossoverCrudeStrategy
+
+        return EMACrossoverCrudeStrategy(
+            under_security_id=int(params.get("under_security_id", 488290)),
+            under_exchange_segment=str(params.get("under_exchange_segment", "MCX_COMM")),
+            futures_security_id=str(params.get("futures_security_id", "488290")),
             fast_period=int(params.get("fast_period", 9)),
             slow_period=int(params.get("slow_period", 21)),
             quantity=int(params.get("quantity", 1)),

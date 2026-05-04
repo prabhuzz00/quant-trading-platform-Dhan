@@ -1,0 +1,11 @@
+{
+  "default_sl_points": 10,
+  "default_target_points": 20,
+  "trailing_sl_enabled": false,
+  "trailing_sl_points": 10,
+  "sl_type": "FIXED",
+  "sl_percent": 10,
+  "target_type": "FIXED",
+  "target_percent": 20,
+  "order_type": "MARKET"
+}

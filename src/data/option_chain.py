@@ -52,6 +52,7 @@ class OptionChainFetcher:
 
     def __init__(self, broker: Any) -> None:
         self.broker = broker
+        self._last_spot_price: float = 0.0
 
     # ------------------------------------------------------------------ #
     #  Expiry list                                                         #
@@ -138,39 +139,83 @@ class OptionChainFetcher:
             )
             return pd.DataFrame()
 
-        oc_records = raw.get("oc_data", [])
-        if not oc_records:
-            return pd.DataFrame()
+        # Cache spot price so get_spot_price() doesn't need a second API call
+        self._last_spot_price = float(raw.get("last_price", 0.0))
 
-        rows = []
-        for record in oc_records:
-            call = record.get("call_options", {})
-            put = record.get("put_options", {})
-            rows.append(
-                {
-                    "strike_price": record.get("strike_price", 0),
-                    # Call side
-                    "call_security_id": str(call.get("security_id", "")),
-                    "call_ltp": float(call.get("last_price", 0.0)),
-                    "call_oi": int(call.get("oi", 0)),
-                    "call_volume": int(call.get("volume", 0)),
-                    "call_iv": float(call.get("iv", 0.0)),
-                    "call_delta": float(call.get("delta", 0.0)),
-                    "call_theta": float(call.get("theta", 0.0)),
-                    "call_vega": float(call.get("vega", 0.0)),
-                    "call_gamma": float(call.get("gamma", 0.0)),
-                    # Put side
-                    "put_security_id": str(put.get("security_id", "")),
-                    "put_ltp": float(put.get("last_price", 0.0)),
-                    "put_oi": int(put.get("oi", 0)),
-                    "put_volume": int(put.get("volume", 0)),
-                    "put_iv": float(put.get("iv", 0.0)),
-                    "put_delta": float(put.get("delta", 0.0)),
-                    "put_theta": float(put.get("theta", 0.0)),
-                    "put_vega": float(put.get("vega", 0.0)),
-                    "put_gamma": float(put.get("gamma", 0.0)),
-                }
-            )
+        # dhanhq >= 2.x: raw = {"last_price": X, "oc": {"strike_str": {"ce": {...}, "pe": {...}}}}
+        # Older SDK:      raw = {"oc_data": [{"strike_price": X, "call_options": {...}, ...}]}
+        oc_dict = raw.get("oc", None)
+        oc_records = raw.get("oc_data", None)
+
+        if oc_dict is not None:
+            # New dict-based format
+            rows = []
+            for strike_str, sides in oc_dict.items():
+                try:
+                    strike = float(strike_str)
+                except ValueError:
+                    continue
+                ce = sides.get("ce", {})
+                pe = sides.get("pe", {})
+                ce_greeks = ce.get("greeks", {})
+                pe_greeks = pe.get("greeks", {})
+                rows.append(
+                    {
+                        "strike_price": strike,
+                        # Call side
+                        "call_security_id": str(ce.get("security_id", "")),
+                        "call_ltp": float(ce.get("last_price", 0.0)),
+                        "call_oi": int(ce.get("oi", 0)),
+                        "call_volume": int(ce.get("volume", 0)),
+                        "call_iv": float(ce.get("implied_volatility", 0.0)),
+                        "call_delta": float(ce_greeks.get("delta", 0.0)),
+                        "call_theta": float(ce_greeks.get("theta", 0.0)),
+                        "call_vega": float(ce_greeks.get("vega", 0.0)),
+                        "call_gamma": float(ce_greeks.get("gamma", 0.0)),
+                        # Put side
+                        "put_security_id": str(pe.get("security_id", "")),
+                        "put_ltp": float(pe.get("last_price", 0.0)),
+                        "put_oi": int(pe.get("oi", 0)),
+                        "put_volume": int(pe.get("volume", 0)),
+                        "put_iv": float(pe.get("implied_volatility", 0.0)),
+                        "put_delta": float(pe_greeks.get("delta", 0.0)),
+                        "put_theta": float(pe_greeks.get("theta", 0.0)),
+                        "put_vega": float(pe_greeks.get("vega", 0.0)),
+                        "put_gamma": float(pe_greeks.get("gamma", 0.0)),
+                    }
+                )
+        elif oc_records is not None:
+            # Legacy list-based format
+            rows = []
+            for record in oc_records:
+                call = record.get("call_options", {})
+                put = record.get("put_options", {})
+                rows.append(
+                    {
+                        "strike_price": record.get("strike_price", 0),
+                        "call_security_id": str(call.get("security_id", "")),
+                        "call_ltp": float(call.get("last_price", 0.0)),
+                        "call_oi": int(call.get("oi", 0)),
+                        "call_volume": int(call.get("volume", 0)),
+                        "call_iv": float(call.get("iv", 0.0)),
+                        "call_delta": float(call.get("delta", 0.0)),
+                        "call_theta": float(call.get("theta", 0.0)),
+                        "call_vega": float(call.get("vega", 0.0)),
+                        "call_gamma": float(call.get("gamma", 0.0)),
+                        "put_security_id": str(put.get("security_id", "")),
+                        "put_ltp": float(put.get("last_price", 0.0)),
+                        "put_oi": int(put.get("oi", 0)),
+                        "put_volume": int(put.get("volume", 0)),
+                        "put_iv": float(put.get("iv", 0.0)),
+                        "put_delta": float(put.get("delta", 0.0)),
+                        "put_theta": float(put.get("theta", 0.0)),
+                        "put_vega": float(put.get("vega", 0.0)),
+                        "put_gamma": float(put.get("gamma", 0.0)),
+                    }
+                )
+        else:
+            logger.warning("Unrecognised option chain format for security_id=%s", under_security_id)
+            return pd.DataFrame()
 
         df = pd.DataFrame(rows).sort_values("strike_price").reset_index(drop=True)
         logger.info(
@@ -199,6 +244,11 @@ class OptionChainFetcher:
         float
             Spot price, or ``0.0`` when unavailable.
         """
+        # Use cached spot price from the last get_option_chain() call to avoid
+        # a redundant API request (the spot price is embedded in the same response).
+        if self._last_spot_price > 0:
+            return self._last_spot_price
+        # Fallback: fetch if not yet cached
         raw = self.broker.get_option_chain(
             under_security_id=under_security_id,
             under_exchange_segment=under_exchange_segment,
@@ -237,24 +287,24 @@ class OptionChainFetcher:
         idx = (chain["strike_price"] - spot_price).abs().idxmin()
         row = chain.loc[idx]
         return {
-            "strike_price": row["strike_price"],
+            "strike_price": float(row["strike_price"]),
             "call": {
-                "security_id": row["call_security_id"],
-                "ltp": row["call_ltp"],
-                "oi": row["call_oi"],
-                "iv": row["call_iv"],
-                "delta": row["call_delta"],
-                "theta": row["call_theta"],
-                "vega": row["call_vega"],
+                "security_id": str(row["call_security_id"]),
+                "ltp": float(row["call_ltp"]),
+                "oi": int(row["call_oi"]),
+                "iv": float(row["call_iv"]),
+                "delta": float(row["call_delta"]),
+                "theta": float(row["call_theta"]),
+                "vega": float(row["call_vega"]),
             },
             "put": {
-                "security_id": row["put_security_id"],
-                "ltp": row["put_ltp"],
-                "oi": row["put_oi"],
-                "iv": row["put_iv"],
-                "delta": row["put_delta"],
-                "theta": row["put_theta"],
-                "vega": row["put_vega"],
+                "security_id": str(row["put_security_id"]),
+                "ltp": float(row["put_ltp"]),
+                "oi": int(row["put_oi"]),
+                "iv": float(row["put_iv"]),
+                "delta": float(row["put_delta"]),
+                "theta": float(row["put_theta"]),
+                "vega": float(row["put_vega"]),
             },
         }
 
@@ -312,7 +362,7 @@ class OptionChainFetcher:
         if total_call_oi == 0:
             return 0.0
 
-        pcr = total_put_oi / total_call_oi
+        pcr = float(total_put_oi) / float(total_call_oi)
         logger.debug(
             "PCR=%.3f (put_oi=%d, call_oi=%d)", pcr, total_put_oi, total_call_oi
         )

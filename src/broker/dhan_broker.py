@@ -78,7 +78,11 @@ class DhanBroker:
         logger.info("DhanBroker initialised in %s mode (client_id=%s)", mode, self.client_id)
 
     def _load_credentials_file(self) -> None:
-        """Load client_id and access_token from the dashboard credentials file."""
+        """Load client_id and access_token from the dashboard credentials file.
+
+        Falls back to ``config/config.yaml`` when the JSON credentials file
+        does not contain valid credentials.
+        """
         try:
             if _CREDENTIALS_FILE.exists():
                 with _CREDENTIALS_FILE.open() as f:
@@ -89,9 +93,27 @@ class DhanBroker:
                     self.client_id = file_client_id
                     self.access_token = file_access_token
                     logger.info("Loaded credentials from %s", _CREDENTIALS_FILE)
+                    return
         except Exception as exc:  # noqa: BLE001
             logger.debug("Could not read credentials file (%s): %s", _CREDENTIALS_FILE, exc)
             logger.warning("Could not load credentials from credentials file.")
+
+        # Last resort: try config/config.yaml (broker.client_id / broker.access_token)
+        try:
+            import yaml  # already in requirements
+            _config_path = Path(__file__).resolve().parent.parent.parent / "config" / "config.yaml"
+            if _config_path.exists():
+                with _config_path.open() as f:
+                    cfg = yaml.safe_load(f) or {}
+                broker_cfg = cfg.get("broker", {})
+                cfg_client_id = str(broker_cfg.get("client_id", "")).strip()
+                cfg_access_token = str(broker_cfg.get("access_token", "")).strip()
+                if cfg_client_id and cfg_access_token:
+                    self.client_id = cfg_client_id
+                    self.access_token = cfg_access_token
+                    logger.info("Loaded credentials from config.yaml")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not read config.yaml for credentials: %s", exc)
 
     def _connect(self) -> None:
         """Establish a connection to the Dhan API using DhanContext."""
@@ -105,6 +127,9 @@ class DhanBroker:
             raise ImportError(
                 "dhanhq>=2.1.0 is required. Install with: pip install 'dhanhq>=2.1.0'"
             ) from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to initialize Dhan API connection: %s", exc)
+            self._dhan = None
 
     # ------------------------------------------------------------------ #
     #  Order management                                                    #
@@ -366,8 +391,21 @@ class DhanBroker:
                 under_security_id=under_security_id,
                 under_exchange_segment=under_exchange_segment,
             )
-            data = response.get("data", {})
-            return data.get("ExpiryDate", [])
+            if not isinstance(response, dict):
+                logger.warning(
+                    "get_expiry_list unexpected response (%s) for seg=%s: %s",
+                    type(response).__name__, under_exchange_segment, response,
+                )
+                return []
+            # dhanhq >= 2.x: response["data"]["data"] is the list of dates
+            outer = response.get("data", {})
+            if not isinstance(outer, dict):
+                return []
+            inner = outer.get("data", None)
+            if isinstance(inner, list):
+                return inner
+            # Fallback for older SDK versions that used "ExpiryDate"
+            return outer.get("ExpiryDate", [])
         except Exception as exc:
             logger.warning("get_expiry_list failed: %s", exc)
             return []
@@ -475,7 +513,22 @@ class DhanBroker:
                 under_exchange_segment=under_exchange_segment,
                 expiry=expiry,
             )
-            return response.get("data", {})
+            if not isinstance(response, dict):
+                logger.warning(
+                    "get_option_chain unexpected response (%s) for seg=%s: %s",
+                    type(response).__name__, under_exchange_segment, response,
+                )
+                return {}
+            # dhanhq >= 2.x: actual chain data is at response["data"]["data"]
+            outer = response.get("data", {})
+            if not isinstance(outer, dict):
+                logger.warning("Unexpected option chain outer type: %s", type(outer))
+                return {}
+            inner = outer.get("data", None)
+            if isinstance(inner, dict):
+                return inner
+            # Fallback for older SDK versions
+            return outer
         except Exception as exc:
             logger.warning("get_option_chain failed: %s", exc)
             return {}
