@@ -9,12 +9,14 @@ Run with:
 import json
 import os
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 # Ensure the repo root is on sys.path when run directly.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from dotenv import load_dotenv
 
 from dashboard.strategy_manager import (
@@ -53,6 +55,8 @@ from src.broker.dhan_broker import DhanBroker
 from src.data.data_fetcher import DataFetcher
 from src.utils.logger import load_config
 from dashboard.trading_engine import get_engine
+from dashboard import market_feed as _mf
+from src.data.market_streamer import TICKER, QUOTE
 
 load_dotenv()
 
@@ -490,6 +494,337 @@ def strategy_signal_log(sid: str):
 
 
 # ---------------------------------------------------------------------------
+# Live indicators endpoint (per strategy, tick-by-tick values)
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/strategies/<sid>/indicators", methods=["GET"])
+def strategy_indicators(sid: str):
+    """Return structured live indicator values for a running strategy instance."""
+    engine = get_engine()
+    instance = engine.get_instance(sid)
+    if instance is None:
+        return jsonify({})
+    if hasattr(instance, "get_live_indicators"):
+        return jsonify(instance.get_live_indicators())
+    return jsonify({})
+
+
+# ---------------------------------------------------------------------------
+# Server-Sent Events – real-time tick stream (NIFTY LTP + indicators)
+# ---------------------------------------------------------------------------
+
+
+def _subscribe_strategy_instruments() -> None:
+    """Subscribe all enabled strategy instruments to the WebSocket feed."""
+    from dashboard.strategy_manager import STRATEGY_CATALOG  # noqa: PLC0415
+    # Always subscribe NIFTY50 index
+    _mf.subscribe("13", "IDX_I", TICKER)
+    for s in get_all_strategies():
+        if not s.get("enabled", False):
+            continue
+        params   = s.get("params", {})
+        asset    = STRATEGY_CATALOG.get(s["id"], {}).get("asset_type", "equity")
+        if asset in ("options", "crude_options"):
+            sec = str(params.get("futures_security_id") or params.get("security_id", ""))
+            seg = str(params.get("under_exchange_segment", "MCX_COMM" if asset == "crude_options" else "IDX_I"))
+        else:
+            sec = str(params.get("security_id", ""))
+            seg = str(params.get("exchange_segment", "NSE_EQ"))
+        if sec:
+            _mf.subscribe(sec, seg, TICKER)
+    # Also subscribe all open-position instruments so LTP streams for P&L
+    for t in get_open_trades():
+        sec = str(t.get("security_id", ""))
+        seg = str(t.get("exchange_segment", "NSE_FNO") or "NSE_FNO")
+        if sec:
+            _mf.subscribe(sec, seg, TICKER)
+
+
+@app.route("/api/stream")
+def live_stream():
+    """SSE endpoint.  Pushes NIFTY LTP, regime, and per-strategy indicator
+    values to the browser every 1 second.  LTP is served from the WebSocket
+    cache when available; falls back to a REST call otherwise.
+    """
+
+    def _generate():
+        # Persistent fallback broker – created once when the WebSocket feed
+        # is not yet available (i.e. before trading is started).
+        _fallback_broker = None
+
+        while True:
+            try:
+                engine = get_engine()
+                nifty_ltp: float = 0.0
+
+                # 1. Try WebSocket cache (instant, no API call)
+                nifty_ltp = _mf.get_ltp("13", "IDX_I")
+
+                # 2. Fall back to REST if WS not yet streaming
+                if nifty_ltp <= 0:
+                    try:
+                        _broker = engine._broker
+                        if _broker is None or _broker._dhan is None:
+                            if _fallback_broker is None or _fallback_broker._dhan is None:
+                                _fallback_broker = DhanBroker(paper_trade=True)
+                            _broker = _fallback_broker
+                        if _broker is not None and _broker._dhan is not None:
+                            nifty_ltp = _broker.get_ltp("13", "IDX_I")
+                    except Exception:
+                        pass
+
+                indicators: dict = {}
+                for sid in get_all_strategies():
+                    strat_id = sid["id"]
+                    inst = engine.get_instance(strat_id)
+                    if inst and hasattr(inst, "get_live_indicators"):
+                        try:
+                            val = inst.get_live_indicators()
+                            if val:
+                                indicators[strat_id] = val
+                        except Exception:
+                            pass
+
+                from dashboard.regime_finder import get_regime_details  # noqa: PLC0415
+                payload = {
+                    "nifty_ltp":  round(nifty_ltp, 2),
+                    "indicators": indicators,
+                    "regime":     get_regime_details(),
+                    "timestamp":  datetime.now().strftime("%H:%M:%S"),
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+            except Exception as exc:  # noqa: BLE001
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            time.sleep(1)
+
+    return Response(
+        stream_with_context(_generate()),
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":       "keep-alive",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Quick NIFTY LTP endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/nifty/ltp", methods=["GET"])
+def nifty_ltp():
+    """Return current NIFTY50 LTP from Dhan using the engine's broker."""
+    try:
+        engine = get_engine()
+        broker = engine._broker
+        if broker is None or broker._dhan is None:
+            return jsonify({"ltp": 0.0, "timestamp": datetime.now().isoformat(timespec="seconds")})
+        ltp = broker.get_ltp("13", "IDX_I")
+        return jsonify({"ltp": round(ltp, 2), "timestamp": datetime.now().isoformat(timespec="seconds")})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc), "ltp": 0.0}), 500
+
+
+# ---------------------------------------------------------------------------
+# Quick / manual order endpoint — for option chain Buy/Sell buttons
+# ---------------------------------------------------------------------------
+
+@app.route("/api/order/quick", methods=["POST"])
+def quick_order():
+    """Place a manual market order from the option chain UI.
+
+    Body (JSON):
+        security_id      – Dhan security ID string
+        exchange_segment – e.g. "MCX_COMM" or "NSE_FNO"
+        action           – "BUY" or "SELL"
+        option_type      – "CE" or "PE"
+        strike           – strike price (for journal label)
+        ltp              – last traded price at time of click (for journal)
+        quantity         – number of lots (default 1)
+        product_type     – "INTRADAY" or "CNC" (default "INTRADAY")
+    """
+    import logging as _logging  # noqa: PLC0415
+    _log = _logging.getLogger(__name__)
+
+    body = request.get_json(silent=True) or {}
+    security_id  = str(body.get("security_id", "")).strip()
+    exchange_seg = str(body.get("exchange_segment", "NSE_FNO")).strip()
+    action       = str(body.get("action", "BUY")).upper()
+    option_type  = str(body.get("option_type", "CE")).upper()
+    strike       = float(body.get("strike", 0))
+    ltp          = float(body.get("ltp", 0))
+    quantity     = max(1, int(body.get("quantity", 1)))
+    product_type = str(body.get("product_type", "INTRADAY")).upper()
+
+    if not security_id:
+        return jsonify({"error": "security_id is required"}), 400
+    if action not in ("BUY", "SELL"):
+        return jsonify({"error": "action must be BUY or SELL"}), 400
+
+    # Get current LTP if not supplied
+    if ltp <= 0:
+        try:
+            broker = DhanBroker(paper_trade=True)
+            ltp = broker.get_ltp(security_id, exchange_seg)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("quick_order: could not fetch LTP for %s: %s", security_id, exc)
+
+    price = ltp if ltp > 0 else 0.0
+
+    # Paper trade — no real order placed
+    order_id = None
+    _log.info("quick_order (paper): %s %s qty=%d price=%.2f", action, security_id, quantity, price)
+
+    # Record in trade journal so it appears in All Trades
+    symbol_label = f"{int(strike)}{option_type}"
+    if action == "BUY":
+        trade_id_new = record_trade_entry(
+            strategy_id="manual",
+            strategy_name="Manual",
+            symbol=symbol_label,
+            security_id=security_id,
+            action="BUY",
+            quantity=quantity,
+            entry_price=price,
+            option_type=option_type,
+            exchange_segment=exchange_seg,
+        )
+        return jsonify({
+            "status": "ok",
+            "paper_trade": True,
+            "trade_id": trade_id_new,
+            "price": price,
+        })
+    else:
+        # SELL — find the matching open BUY trade and close it
+        open_trades = get_open_trades()
+        matched = next(
+            (t for t in reversed(open_trades)
+             if str(t.get("security_id", "")) == security_id),
+            None,
+        )
+        if matched:
+            record_trade_exit(matched["id"], price)
+            return jsonify({
+                "status": "ok",
+                "paper_trade": True,
+                "closed_trade_id": matched["id"],
+                "price": price,
+            })
+        # No matching open trade — record as a new SELL entry
+        trade_id_new = record_trade_entry(
+            strategy_id="manual",
+            strategy_name="Manual",
+            symbol=symbol_label,
+            security_id=security_id,
+            action="SELL",
+            quantity=quantity,
+            entry_price=price,
+            option_type=option_type,
+            exchange_segment=exchange_seg,
+        )
+        return jsonify({
+            "status": "ok",
+            "paper_trade": True,
+            "trade_id": trade_id_new,
+            "price": price,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Squareoff endpoint – close an open trade at current market price
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/trades/<int:trade_id>/squareoff", methods=["POST"])
+def squareoff_trade(trade_id: int):
+    """Square off an open position: fetch current LTP, place SELL if live,
+    then mark the trade as CLOSED in the journal.
+    """
+    import logging  # noqa: PLC0415
+    _log = logging.getLogger(__name__)
+
+    trades = get_all_trades()
+    trade  = next((t for t in trades if t["id"] == trade_id), None)
+    if trade is None:
+        return jsonify({"error": "Trade not found"}), 404
+    if trade["status"] != "OPEN":
+        return jsonify({"error": "Trade is already closed"}), 400
+
+    body         = request.get_json(silent=True) or {}
+    security_id  = str(trade.get("security_id", ""))
+    exch_seg     = str(trade.get("exchange_segment", "NSE_FNO") or "NSE_FNO")
+    quantity     = int(trade.get("quantity", 1))
+
+    # Try to get current LTP
+    exit_price = float(body.get("exit_price", 0.0))
+    if exit_price <= 0 and security_id:
+        try:
+            broker = DhanBroker(paper_trade=True)
+            exit_price = broker.get_ltp(security_id, exch_seg)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("Could not fetch LTP for squareoff trade %d: %s", trade_id, exc)
+
+    if exit_price <= 0:
+        return jsonify({"error": "Could not determine exit price. Pass exit_price in body."}), 400
+
+    # Paper trade — no real order placed, just record the exit
+    result = record_trade_exit(trade_id, exit_price)
+    if not result:
+        return jsonify({"error": "Failed to record trade exit"}), 500
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# All open positions (across all strategies)
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/positions", methods=["GET"])
+def list_positions():
+    """Return all open trades enriched with current LTP where possible."""
+    open_trades = get_open_trades()
+    if not open_trades:
+        return jsonify([])
+
+    # Batch LTP lookups — WebSocket cache first, REST fallback
+    try:
+        _rest_broker = None
+        for t in open_trades:
+            sid_str = str(t.get("security_id", ""))
+            seg     = str(t.get("exchange_segment", "NSE_FNO") or "NSE_FNO")
+            ltp: float = 0.0
+            if sid_str:
+                ltp = _mf.get_ltp(sid_str, seg)
+                if ltp <= 0:
+                    try:
+                        if _rest_broker is None:
+                            _rest_broker = DhanBroker(paper_trade=True)
+                        ltp = _rest_broker.get_ltp(sid_str, seg)
+                    except Exception:
+                        pass
+            t["current_ltp"] = round(ltp, 2)
+            action = str(t.get("action", "BUY")).upper()
+            ep     = float(t.get("entry_price", 0))
+            qty    = int(t.get("quantity", 0))
+            if ltp > 0:
+                t["unrealized_pnl"] = round(
+                    (ltp - ep) * qty if action == "BUY" else (ep - ltp) * qty, 2
+                )
+            else:
+                t["unrealized_pnl"] = 0.0
+    except Exception:  # noqa: BLE001
+        for t in open_trades:
+            t["current_ltp"]    = 0.0
+            t["unrealized_pnl"] = 0.0
+
+    return jsonify(open_trades)
+
+
+# ---------------------------------------------------------------------------
 # Trading state (master on/off)
 # ---------------------------------------------------------------------------
 
@@ -497,7 +832,20 @@ def strategy_signal_log(sid: str):
 @app.route("/api/trading/status", methods=["GET"])
 def trading_status():
     engine = get_engine()
-    return jsonify({"active": get_trading_active(), "running": engine.is_running()})
+    return jsonify({
+        "active":       get_trading_active(),
+        "running":      engine.is_running(),
+        "feed_running": _mf.is_running(),
+    })
+
+
+@app.route("/api/feed/status", methods=["GET"])
+def feed_status():
+    """Return the WebSocket market feed connection status."""
+    return jsonify({
+        "running":  _mf.is_running(),
+        "streamer": _mf.get_streamer() is not None,
+    })
 
 
 @app.route("/api/trading/start", methods=["POST"])
@@ -513,6 +861,12 @@ def trading_start():
         engine = get_engine()
         engine.invalidate_all()
         engine.start(broker, paper_trade=True)
+
+        # ---- Start WebSocket live market feed ----
+        # Subscribe all instruments needed by enabled strategies
+        _subscribe_strategy_instruments()
+        _mf.start_feed(broker)
+
     except Exception as exc:  # noqa: BLE001
         return jsonify({"active": True, "running": False, "warning": str(exc)})
     return jsonify({"active": True, "running": engine.is_running()})
@@ -522,6 +876,7 @@ def trading_start():
 def trading_stop():
     set_trading_active(False)
     get_engine().stop()
+    _mf.stop_feed()
     return jsonify({"active": False, "running": False})
 
 

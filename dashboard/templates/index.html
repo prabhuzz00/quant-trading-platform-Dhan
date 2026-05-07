@@ -272,6 +272,22 @@
       opacity: .45; cursor: not-allowed;
     }
 
+    /* Quick order Buy/Sell mini-buttons in option chain table */
+    .qo-buy, .qo-sell {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid;
+      cursor: pointer;
+      line-height: 1.5;
+      margin: 1px;
+    }
+    .qo-buy  { background: rgba(16,212,168,.15); border-color: var(--green); color: var(--green); }
+    .qo-sell { background: rgba(240,80,112,.15);  border-color: var(--red);   color: var(--red);   }
+    .qo-buy:hover  { background: rgba(16,212,168,.3); }
+    .qo-sell:hover { background: rgba(240,80,112,.3); }
+
     /* ------------------------------------------------------------------ */
     /* Params editor panel                                                 */
     /* ------------------------------------------------------------------ */
@@ -682,6 +698,67 @@
     .log-action-sell { color: var(--red); font-weight: 600; }
     .log-symbol { color: var(--text-dim); }
     .log-pnl { margin-left: auto; font-weight: 500; flex-shrink: 0; }
+
+    /* ------------------------------------------------------------------ */
+    /* Live indicator chips (shown inside strategy cards)                  */
+    /* ------------------------------------------------------------------ */
+    .indicator-strip {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding: 8px 18px 10px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-card2);
+    }
+    .indicator-chip {
+      background: var(--bg-input);
+      border: 1px solid var(--border-light);
+      border-radius: 20px;
+      padding: 3px 9px;
+      font-size: 11px; font-family: monospace;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .indicator-chip .chip-key { color: var(--text-muted); margin-right: 4px; }
+    .indicator-chip .chip-val { color: var(--text); font-weight: 500; }
+    .indicator-chip.pos-chip .chip-val { color: var(--green); }
+    .indicator-chip.neg-chip .chip-val { color: var(--red); }
+
+    /* ------------------------------------------------------------------ */
+    /* Positions page                                                       */
+    /* ------------------------------------------------------------------ */
+    .positions-tabs {
+      display: flex; gap: 4px; margin-bottom: 18px;
+      border-bottom: 1px solid var(--border); padding-bottom: 0;
+    }
+    .pos-tab {
+      padding: 8px 20px; font-size: 13px; font-weight: 500;
+      color: var(--text-muted); cursor: pointer; border: none;
+      background: none; border-bottom: 2px solid transparent;
+      transition: all .15s; margin-bottom: -1px;
+    }
+    .pos-tab.active { color: var(--green); border-bottom-color: var(--green); }
+    .pos-tab:hover  { color: var(--text); }
+
+    .positions-pane { display: none; }
+    .positions-pane.active { display: block; }
+
+    .sqoff-btn {
+      padding: 4px 10px; font-size: 11px; font-weight: 500;
+      background: rgba(240,80,112,.12); border: 1px solid rgba(240,80,112,.4);
+      color: var(--red); border-radius: 4px; cursor: pointer;
+      white-space: nowrap; transition: background .15s;
+    }
+    .sqoff-btn:hover  { background: rgba(240,80,112,.22); }
+    .sqoff-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ------------------------------------------------------------------ */
+    /* SSE live dot                                                         */
+    /* ------------------------------------------------------------------ */
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text-muted);
+      display: inline-block; margin-right: 4px;
+    }
+    .live-dot.on { background: var(--green); box-shadow: 0 0 5px var(--green); animation: pulse 1.5s infinite; }
   </style>
 </head>
 <body>
@@ -707,11 +784,17 @@
     <button class="nav-tab" onclick="switchTab('regime', this)">Regime</button>
     <button class="nav-tab" onclick="switchTab('options_trading', this)">Options Trading</button>
     <button class="nav-tab" onclick="switchTab('all_trades', this)">All Trades</button>
+    <button class="nav-tab" onclick="switchTab('positions', this)">Positions</button>
   </nav>
 
-  <div class="header-status">
-    <div class="status-dot" id="connDot"></div>
-    <span id="headerStatus">Loading…</span>
+  <div class="header-status" style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:12px;color:var(--text-muted)">
+      NIFTY: <span id="headerNiftyLtp" style="color:var(--green);font-weight:600">—</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <div class="status-dot" id="connDot"></div>
+      <span id="headerStatus">Loading…</span>
+    </div>
   </div>
 </header>
 
@@ -935,6 +1018,54 @@
   </div>
 </div>
 
+<!-- Quick Order Modal -->
+<div class="modal-backdrop" id="quickOrderModal" onclick="if(event.target===this)closeQuickOrderModal()">
+  <div class="modal" style="max-width:360px">
+    <div class="modal-header">
+      <h3 id="qoTitle">Place Order</h3>
+      <button class="modal-close" onclick="closeQuickOrderModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px 20px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Strike / Option</div>
+          <div id="qoLabel" style="font-size:16px;font-weight:700"></div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">LTP</div>
+          <div id="qoLtp" style="font-size:16px;font-weight:700"></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Quantity</label>
+          <input id="qoQty" type="number" min="1" value="1"
+                 style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:14px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Product</label>
+          <select id="qoProduct"
+                  style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:14px">
+            <option value="INTRADAY">INTRADAY</option>
+            <option value="MARGIN">MARGIN</option>
+            <option value="CNC">CNC</option>
+          </select>
+        </div>
+      </div>
+      <div id="qoPaperBadge" style="display:none;font-size:11px;color:var(--orange);background:rgba(245,158,11,.12);border-radius:4px;padding:5px 10px;margin-bottom:12px">
+        📝 Paper trade — no real order will be placed
+      </div>
+      <div style="display:flex;gap:10px">
+        <button id="qoBtn" onclick="submitQuickOrder()"
+                style="flex:1;padding:10px;border-radius:6px;border:none;font-size:14px;font-weight:600;cursor:pointer"></button>
+        <button onclick="closeQuickOrderModal()"
+                style="padding:10px 18px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--text-muted);cursor:pointer">Cancel</button>
+      </div>
+      <div id="qoStatus" style="margin-top:10px;font-size:12px;min-height:18px"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* --- inject extra sections into DOM --- */
 document.getElementById('extra-sections').outerHTML = `
@@ -1109,6 +1240,66 @@ document.getElementById('extra-sections').outerHTML = `
     </div>
   </div>
 </section>
+
+<!-- POSITIONS TAB -->
+<section id="tab-positions" class="section" style="display:none">
+  <div class="section-header">
+    <div>
+      <div class="section-title">Positions</div>
+      <div class="section-sub">Live open positions and closed trade history with square-off</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="live-dot" id="posLiveDot"></span>
+      <span style="font-size:12px;color:var(--text-muted)" id="posLastRefresh"></span>
+      <button class="btn btn-blue" onclick="loadPositions()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <!-- Stats strip -->
+  <div id="posStats" class="stats-strip" style="margin-bottom:18px"></div>
+
+  <!-- Sub-tabs -->
+  <div class="positions-tabs">
+    <button class="pos-tab active" onclick="switchPosTab('open', this)">Open Positions</button>
+    <button class="pos-tab" onclick="switchPosTab('closed', this)">Closed Positions</button>
+  </div>
+
+  <!-- Open Positions -->
+  <div id="pos-pane-open" class="positions-pane active">
+    <div class="form-card" style="padding:0;overflow:hidden">
+      <div class="trades-table-wrap" style="max-height:500px">
+        <table>
+          <thead><tr>
+            <th>Strategy</th><th>Symbol</th><th>Action</th><th>Qty</th>
+            <th>Entry ₹</th><th>LTP ₹</th><th>Unreal P&amp;L</th>
+            <th>SL ₹</th><th>Target ₹</th><th>Entry Time</th><th>Squareoff</th>
+          </tr></thead>
+          <tbody id="posOpenBody">
+            <tr><td colspan="11" style="text-align:center;padding:28px;color:var(--text-muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Closed Positions -->
+  <div id="pos-pane-closed" class="positions-pane">
+    <div class="form-card" style="padding:0;overflow:hidden">
+      <div class="trades-table-wrap" style="max-height:500px">
+        <table>
+          <thead><tr>
+            <th>Strategy</th><th>Symbol</th><th>Action</th><th>Qty</th>
+            <th>Entry ₹</th><th>Exit ₹</th><th>P&amp;L</th>
+            <th>Entry Time</th><th>Exit Time</th>
+          </tr></thead>
+          <tbody id="posClosedBody">
+            <tr><td colspan="9" style="text-align:center;padding:28px;color:var(--text-muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
 `;
 </script>
 
@@ -1181,6 +1372,7 @@ function switchTab(name, el) {
   }
   if (name === 'options_trading') loadOptionsTrading();
   if (name === 'all_trades')      loadAllTrades();
+  if (name === 'positions')       loadPositions();
 }
 
 /* ======================================================================= */
@@ -1263,6 +1455,14 @@ function buildCard(s) {
         ? `<button class="btn btn-blue" onclick="goBacktest('${s.id}')">▶ Backtest</button>`
         : `<span style="font-size:12px;color:var(--text-muted);align-self:center">Requires live API</span>`
       }
+    </div>
+    <button class="btn btn-ghost" style="margin:0 18px 8px;font-size:12px" onclick="toggleStrategyLog('${s.id}')">📜 Log</button>
+    <div class="indicator-strip" id="indicator-strip-${s.id}" style="display:none">
+      <span style="font-size:11px;color:var(--text-muted);margin-right:4px">Live:</span>
+    </div>
+    <div class="log-panel" id="log-panel-${s.id}">
+      <div class="log-panel-title">Activity Log</div>
+      <div class="log-loading" style="color:var(--text-muted);font-size:12px;padding:8px 0">Loading…</div>
     </div>
     <div class="params-panel" id="params-${s.id}">
       <div class="params-grid">${paramsHtml}</div>
@@ -1694,6 +1894,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btFrom').value = oneYearAgo.toISOString().slice(0, 10);
   // Auto-fetch regime on load so it is primed before the user opens the tab
   refreshRegimeNow().then(() => _startRegimeAutoRefresh());
+  // Start SSE for real-time tick streaming
+  startSSE();
+  // Start direct indicator polling as reliable fallback (every 5 s)
+  startIndicatorPolling();
 });
 
 /* ======================================================================= */
@@ -1808,21 +2012,30 @@ async function fetchNifty() {
     `;
     const rows = (d.strikes_near_atm || []).map(s => {
       const isAtm = s.strike === d.atm_strike;
+      const seg   = 'NSE_FNO';
       return `<tr ${isAtm ? 'style="background:rgba(16,212,168,.07)"' : ''}>
         <td style="${isAtm ? 'font-weight:700;color:var(--green)' : ''}">${s.strike}</td>
         <td class="pos">₹${fmt(s.call_ltp)}</td>
         <td>${(s.call_oi/1000).toFixed(1)}k</td>
         <td>${fmt(s.call_iv, 1)}%</td>
+        <td style="text-align:center;white-space:nowrap">
+          <button class="qo-buy"  onclick="openQuickOrder('${escHtml(s.call_sid)}','${seg}','BUY','CE',${s.strike},${s.call_ltp})">B</button>
+          <button class="qo-sell" onclick="openQuickOrder('${escHtml(s.call_sid)}','${seg}','SELL','CE',${s.strike},${s.call_ltp})">S</button>
+        </td>
         <td class="neg">₹${fmt(s.put_ltp)}</td>
         <td>${(s.put_oi/1000).toFixed(1)}k</td>
         <td>${fmt(s.put_iv, 1)}%</td>
+        <td style="text-align:center;white-space:nowrap">
+          <button class="qo-buy"  onclick="openQuickOrder('${escHtml(s.put_sid)}','${seg}','BUY','PE',${s.strike},${s.put_ltp})">B</button>
+          <button class="qo-sell" onclick="openQuickOrder('${escHtml(s.put_sid)}','${seg}','SELL','PE',${s.strike},${s.put_ltp})">S</button>
+        </td>
       </tr>`;
     }).join('');
     tableEl.innerHTML = `
       <table>
         <thead><tr>
-          <th>Strike</th><th>Call LTP</th><th>Call OI</th><th>Call IV</th>
-          <th>Put LTP</th><th>Put OI</th><th>Put IV</th>
+          <th>Strike</th><th>Call LTP</th><th>Call OI</th><th>Call IV</th><th></th>
+          <th>Put LTP</th><th>Put OI</th><th>Put IV</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -1883,21 +2096,30 @@ async function fetchCrude() {
     `;
     const rows = (d.strikes_near_atm || []).map(s => {
       const isAtm = s.strike === d.atm_strike;
+      const seg   = 'MCX_COMM';
       return `<tr ${isAtm ? 'style="background:rgba(245,158,11,.07)"' : ''}>
         <td style="${isAtm ? 'font-weight:700;color:var(--orange)' : ''}">${s.strike}</td>
         <td class="pos">₹${fmt(s.call_ltp)}</td>
         <td>${(s.call_oi/1000).toFixed(1)}k</td>
         <td>${fmt(s.call_iv, 1)}%</td>
+        <td style="text-align:center;white-space:nowrap">
+          <button class="qo-buy"  onclick="openQuickOrder('${escHtml(s.call_sid)}','${seg}','BUY','CE',${s.strike},${s.call_ltp})">B</button>
+          <button class="qo-sell" onclick="openQuickOrder('${escHtml(s.call_sid)}','${seg}','SELL','CE',${s.strike},${s.call_ltp})">S</button>
+        </td>
         <td class="neg">₹${fmt(s.put_ltp)}</td>
         <td>${(s.put_oi/1000).toFixed(1)}k</td>
         <td>${fmt(s.put_iv, 1)}%</td>
+        <td style="text-align:center;white-space:nowrap">
+          <button class="qo-buy"  onclick="openQuickOrder('${escHtml(s.put_sid)}','${seg}','BUY','PE',${s.strike},${s.put_ltp})">B</button>
+          <button class="qo-sell" onclick="openQuickOrder('${escHtml(s.put_sid)}','${seg}','SELL','PE',${s.strike},${s.put_ltp})">S</button>
+        </td>
       </tr>`;
     }).join('');
     tableEl.innerHTML = `
       <table>
         <thead><tr>
-          <th>Strike</th><th>Call LTP</th><th>Call OI</th><th>Call IV</th>
-          <th>Put LTP</th><th>Put OI</th><th>Put IV</th>
+          <th>Strike</th><th>Call LTP</th><th>Call OI</th><th>Call IV</th><th></th>
+          <th>Put LTP</th><th>Put OI</th><th>Put IV</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2166,37 +2388,47 @@ function buildOptionCard(s, regime) {
     </div>
     <div class="card-actions">
       <button class="btn btn-ghost" onclick="showStrategyTrades('${s.id}', '${escHtml(s.name)}')">📋 View Trades</button>
-      <button class="btn btn-ghost" onclick="toggleStrategyLog('${s.id}')">📜 Log</button>
+      <button class="btn btn-ghost" onclick="toggleOptionLog('${s.id}')">📜 Log</button>
     </div>
-    <div class="log-panel" id="log-panel-${s.id}">
+    <!-- Live indicator strip — populated by SSE -->
+    <div class="indicator-strip" id="opt-indicator-strip-${s.id}" style="display:none">
+      <span style="font-size:11px;color:var(--text-muted);margin-right:4px">Live:</span>
+    </div>
+    <div class="log-panel" id="opt-log-panel-${s.id}">
       <div class="log-panel-title">Activity Log</div>
       <div class="log-loading" style="color:var(--text-muted);font-size:12px;padding:8px 0">Loading…</div>
     </div>`;
   return div;
 }
 
-function toggleStrategyLog(strategyId) {
-  const panel = document.getElementById(`log-panel-${strategyId}`);
+function toggleStrategyLog(strategyId, panelPrefix = 'log-panel-') {
+  const panel = document.getElementById(`${panelPrefix}${strategyId}`);
+  if (!panel) return;
   const isOpen = panel.classList.toggle('open');
   if (isOpen) {
-    loadStrategyLog(strategyId);
-    // Start auto-refresh every 60s while panel is open
+    loadStrategyLog(strategyId, panelPrefix);
+    // Auto-refresh every 5 s while panel is open
     const timerId = setInterval(() => {
-      const p = document.getElementById(`log-panel-${strategyId}`);
+      const p = document.getElementById(`${panelPrefix}${strategyId}`);
       if (p && p.classList.contains('open')) {
-        loadStrategyLog(strategyId);
+        loadStrategyLog(strategyId, panelPrefix);
       } else {
-        clearInterval(timerId); // panel closed — stop polling
+        clearInterval(timerId);
       }
-    }, 60_000);
+    }, 5_000);
     panel.dataset.timerId = timerId;
   } else {
     clearInterval(panel.dataset.timerId);
   }
 }
 
-async function loadStrategyLog(strategyId) {
-  const panel = document.getElementById(`log-panel-${strategyId}`);
+function toggleOptionLog(strategyId) {
+  toggleStrategyLog(strategyId, 'opt-log-panel-');
+}
+
+async function loadStrategyLog(strategyId, panelPrefix = 'log-panel-') {
+  const panel = document.getElementById(`${panelPrefix}${strategyId}`);
+  if (!panel) return;
   const title = panel.querySelector('.log-panel-title');
   // Clear previous content (keep title + loading placeholder)
   panel.querySelectorAll('.log-entry, .log-empty, .log-err, .log-section-hdr, .signal-entry').forEach(el => el.remove());
@@ -2216,6 +2448,13 @@ async function loadStrategyLog(strategyId) {
     loadingEl.remove();
 
     // ---- Signal log section ----
+    if (!signalLog.length) {
+      const hint = document.createElement('div');
+      hint.className = 'log-empty';
+      hint.style.cssText = 'color:var(--text-muted);font-size:12px;padding:8px 0;font-style:italic';
+      hint.textContent = 'No signal ticks yet — enable the strategy and start trading to see live logs.';
+      panel.appendChild(hint);
+    }
     if (signalLog.length) {
       const MAX_TICKS = 50;
       const hdr = document.createElement('div');
@@ -2360,6 +2599,305 @@ async function showStrategyTrades(strategyId, strategyName) {
 
 function closeTradeModal() {
   document.getElementById('tradeModal').classList.remove('show');
+}
+
+/* ======================================================================= */
+/* Quick Order (option chain Buy/Sell buttons)                              */
+/* ======================================================================= */
+let _qo = {};   // current quick-order state
+
+function openQuickOrder(secId, seg, action, optType, strike, ltp) {
+  _qo = { secId, seg, action, optType, strike, ltp };
+  const isBuy  = action === 'BUY';
+  const label  = `${Math.round(strike)} ${optType}`;
+  document.getElementById('qoTitle').textContent  = `${isBuy ? '🟢 BUY' : '🔴 SELL'} ${label}`;
+  document.getElementById('qoLabel').textContent  = label;
+  document.getElementById('qoLtp').textContent    = `₹${fmt(ltp)}`;
+  document.getElementById('qoQty').value          = 1;
+  document.getElementById('qoStatus').textContent = '';
+
+  // Adjust product type options per exchange segment
+  const sel = document.getElementById('qoProduct');
+  const isMcx = seg === 'MCX_COMM';
+  // Remove all options and repopulate
+  sel.innerHTML = isMcx
+    ? '<option value="INTRADAY">INTRADAY</option><option value="MARGIN">MARGIN</option>'
+    : '<option value="INTRADAY">INTRADAY</option><option value="MARGIN">MARGIN</option><option value="CNC">CNC</option>';
+  sel.value = 'INTRADAY';
+
+  const btn = document.getElementById('qoBtn');
+  if (isBuy) {
+    btn.textContent          = `🟢 Buy ${label}`;
+    btn.style.background     = 'rgba(16,212,168,.2)';
+    btn.style.border         = '1px solid var(--green)';
+    btn.style.color          = 'var(--green)';
+  } else {
+    btn.textContent          = `🔴 Sell ${label}`;
+    btn.style.background     = 'rgba(240,80,112,.2)';
+    btn.style.border         = '1px solid var(--red)';
+    btn.style.color          = 'var(--red)';
+  }
+
+  // Paper badge hidden — always live
+  document.getElementById('qoPaperBadge').style.display = 'none';
+
+  document.getElementById('quickOrderModal').classList.add('show');
+}
+
+function closeQuickOrderModal() {
+  document.getElementById('quickOrderModal').classList.remove('show');
+}
+
+async function submitQuickOrder() {
+  const btn    = document.getElementById('qoBtn');
+  const status = document.getElementById('qoStatus');
+  const qty    = parseInt(document.getElementById('qoQty').value) || 1;
+  const prod   = document.getElementById('qoProduct').value;
+
+  btn.disabled     = true;
+  btn.textContent  = '⏳ Placing…';
+  status.style.color = 'var(--text-muted)';
+  status.textContent = 'Sending order…';
+
+  try {
+    const res = await api('POST', '/api/order/quick', {
+      security_id:      _qo.secId,
+      exchange_segment: _qo.seg,
+      action:           _qo.action,
+      option_type:      _qo.optType,
+      strike:           _qo.strike,
+      ltp:              _qo.ltp,
+      quantity:         qty,
+      product_type:     prod,
+    });
+
+    const mode = res.paper_trade ? ' (paper)' : '';
+    status.style.color = 'var(--green)';
+    status.textContent = `✓ Order placed${mode}  price=₹${fmt(res.price)}`;
+    toast(`${_qo.action} ${Math.round(_qo.strike)}${_qo.optType} @ ₹${fmt(res.price)}${mode}`, 'success');
+    setTimeout(closeQuickOrderModal, 1400);
+  } catch(e) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✕ ' + e.message;
+    toast('Order failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    const isBuy = _qo.action === 'BUY';
+    btn.textContent = `${isBuy ? '🟢 Buy' : '🔴 Sell'} ${Math.round(_qo.strike)}${_qo.optType}`;
+  }
+}
+
+/* ======================================================================= */
+/* Positions tab                                                             */
+/* ======================================================================= */
+let _posAutoTimer = null;
+
+function switchPosTab(pane, btn) {
+  document.querySelectorAll('.pos-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.positions-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('pos-pane-' + pane).classList.add('active');
+}
+
+async function loadPositions() {
+  const openBody   = document.getElementById('posOpenBody');
+  const closedBody = document.getElementById('posClosedBody');
+  const statsEl    = document.getElementById('posStats');
+  const refreshEl  = document.getElementById('posLastRefresh');
+  if (openBody)   openBody.innerHTML   = '<tr><td colspan="11" style="text-align:center;padding:18px;color:var(--text-muted)">Loading…</td></tr>';
+  if (closedBody) closedBody.innerHTML = '<tr><td colspan="9"  style="text-align:center;padding:18px;color:var(--text-muted)">Loading…</td></tr>';
+
+  try {
+    const [open, closed, stats] = await Promise.all([
+      api('GET', '/api/positions'),
+      api('GET', '/api/trades?status=closed'),
+      api('GET', '/api/trades/stats'),
+    ]);
+
+    // Stats strip
+    const totalOpen    = open.length;
+    const totalClosed  = closed.length;
+    const unrealPnl    = open.reduce((a, t) => a + (t.unrealized_pnl || 0), 0);
+    const realPnl      = closed.reduce((a, t) => a + (t.pnl || 0), 0);
+    const winCount     = closed.filter(t => t.pnl > 0).length;
+    const winRate      = totalClosed > 0 ? (winCount / totalClosed * 100).toFixed(1) : '0.0';
+    const unrealColor  = unrealPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const realColor    = realPnl   >= 0 ? 'var(--green)' : 'var(--red)';
+    if (statsEl) statsEl.innerHTML = `
+      <div class="stat-box"><div class="stat-label">Open Positions</div><div class="stat-value plain" style="color:var(--blue)">${totalOpen}</div></div>
+      <div class="stat-box"><div class="stat-label">Unrealized P&amp;L</div><div class="stat-value" style="color:${unrealColor}">₹${fmt(unrealPnl)}</div></div>
+      <div class="stat-box"><div class="stat-label">Closed Trades</div><div class="stat-value plain">${totalClosed}</div></div>
+      <div class="stat-box"><div class="stat-label">Realized P&amp;L</div><div class="stat-value" style="color:${realColor}">₹${fmt(realPnl)}</div></div>
+      <div class="stat-box"><div class="stat-label">Win Rate</div><div class="stat-value ${Number(winRate)>=50?'green':'red'}">${winRate}%</div></div>
+    `;
+
+    // Open positions
+    if (openBody) {
+      if (!open.length) {
+        openBody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:28px;color:var(--text-muted)">No open positions</td></tr>';
+      } else {
+        openBody.innerHTML = open.map(t => {
+          const upnl      = t.unrealized_pnl || 0;
+          const pnlColor  = upnl >= 0 ? 'var(--green)' : 'var(--red)';
+          const pnlSign   = upnl >= 0 ? '+' : '';
+          const ltp       = t.current_ltp || 0;
+          const timeStr   = (t.entry_time || '').slice(0, 16).replace('T', ' ');
+          return `<tr>
+            <td style="font-size:11px;color:var(--text-muted)">${escHtml(t.strategy_id || '')}</td>
+            <td style="font-weight:500">${escHtml(t.symbol || '')}</td>
+            <td class="${t.action==='BUY'?'pos':'neg'}">${escHtml(t.action)}</td>
+            <td>${t.quantity}</td>
+            <td>₹${fmt(t.entry_price)}</td>
+            <td style="font-weight:600">${ltp > 0 ? '₹'+fmt(ltp) : '—'}</td>
+            <td style="color:${pnlColor};font-weight:500">${ltp > 0 ? pnlSign+'₹'+fmt(Math.abs(upnl)) : '—'}</td>
+            <td style="color:var(--red)">${t.sl_price > 0 ? '₹'+fmt(t.sl_price) : '—'}</td>
+            <td style="color:var(--green)">${t.target_price > 0 ? '₹'+fmt(t.target_price) : '—'}</td>
+            <td style="font-size:11px">${escHtml(timeStr)}</td>
+            <td>
+              <button class="sqoff-btn" onclick="squareOff(${t.id}, this)"
+                      title="Square off at market price">✕ Sq Off</button>
+            </td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    // Closed positions
+    if (closedBody) {
+      if (!closed.length) {
+        closedBody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:28px;color:var(--text-muted)">No closed trades</td></tr>';
+      } else {
+        closedBody.innerHTML = closed.map(t => {
+          const pc = t.pnl >= 0 ? 'pos' : 'neg';
+          return `<tr>
+            <td style="font-size:11px;color:var(--text-muted)">${escHtml(t.strategy_id || '')}</td>
+            <td>${escHtml(t.symbol || '')}</td>
+            <td class="${t.action==='BUY'?'pos':'neg'}">${escHtml(t.action)}</td>
+            <td>${t.quantity}</td>
+            <td>₹${fmt(t.entry_price)}</td>
+            <td>₹${fmt(t.exit_price || 0)}</td>
+            <td class="${pc}">${(t.pnl>=0?'+':'')}₹${fmt(t.pnl)}</td>
+            <td style="font-size:11px">${escHtml((t.entry_time||'').slice(0,16).replace('T',' '))}</td>
+            <td style="font-size:11px">${escHtml((t.exit_time||'').slice(0,16).replace('T',' '))}</td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    if (refreshEl) refreshEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    if (openBody)   openBody.innerHTML   = `<tr><td colspan="11" style="color:var(--red);padding:16px">${e.message}</td></tr>`;
+    if (closedBody) closedBody.innerHTML = `<tr><td colspan="9"  style="color:var(--red);padding:16px">${e.message}</td></tr>`;
+  }
+}
+
+async function squareOff(tradeId, btn) {
+  if (!confirm('Square off this position at market price?')) return;
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  try {
+    const result = await api('POST', `/api/trades/${tradeId}/squareoff`);
+    toast(`Position closed at ₹${fmt(result.exit_price || 0)} · P&L: ₹${fmt(result.pnl || 0)}`, result.pnl >= 0 ? 'success' : 'info');
+    await loadPositions();
+  } catch(e) {
+    toast('Squareoff failed: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '✕ Sq Off';
+  }
+}
+
+/* ======================================================================= */
+/* Direct indicator polling — reliable fallback alongside SSE               */
+/* ======================================================================= */
+function startIndicatorPolling() {
+  setInterval(async () => {
+    if (!_strategies) return;
+    const enabled = _strategies.filter(s => s.enabled);
+    for (const s of enabled) {
+      try {
+        const vals = await api('GET', `/api/strategies/${encodeURIComponent(s.id)}/indicators`).catch(() => null);
+        if (vals && Object.keys(vals).length) {
+          updateIndicatorChips(s.id, vals);
+        }
+      } catch (_) { /* ignore */ }
+    }
+  }, 5000);
+}
+
+/* ======================================================================= */
+/* Server-Sent Events – real-time tick streaming                            */
+/* ======================================================================= */
+let _sseSource      = null;
+let _liveIndicators = {};  // strategyId → {key: value}
+
+function startSSE() {
+  if (_sseSource) return; // already running
+  _sseSource = new EventSource('/api/stream');
+
+  _sseSource.onopen = () => {
+    const dot = document.getElementById('posLiveDot');
+    if (dot) dot.classList.add('on');
+  };
+
+  _sseSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.error) return;
+
+      // Update NIFTY LTP in header
+      if (data.nifty_ltp > 0) {
+        const ltpEl = document.getElementById('headerNiftyLtp');
+        if (ltpEl) ltpEl.textContent = '₹' + fmt(data.nifty_ltp);
+      }
+
+      // Store latest indicator values
+      if (data.indicators) {
+        _liveIndicators = data.indicators;
+        // Update indicator chips in open strategy cards
+        Object.entries(data.indicators).forEach(([sid, vals]) => {
+          updateIndicatorChips(sid, vals);
+        });
+      }
+
+      // Update regime badge in options trading banner
+      if (data.regime && data.regime.regime) {
+        const banners = document.querySelectorAll('.regime-banner-live');
+        banners.forEach(b => {
+          b.textContent = data.regime.regime;
+          b.className = `regime-badge regime-${data.regime.regime} regime-banner-live`;
+          b.style.cssText = 'font-size:12px;padding:3px 10px';
+        });
+      }
+
+      const dot = document.getElementById('posLiveDot');
+      if (dot) dot.classList.add('on');
+    } catch(err) { /* ignore parse errors */ }
+  };
+
+  _sseSource.onerror = () => {
+    const dot = document.getElementById('posLiveDot');
+    if (dot) dot.classList.remove('on');
+    // Auto-reconnect handled by browser
+  };
+}
+
+function updateIndicatorChips(strategyId, indicators) {
+  if (!indicators || !Object.keys(indicators).length) return;
+  const chips = Object.entries(indicators).map(([key, val]) => {
+    if (key === 'price') {
+      return `<span class="indicator-chip"><span class="chip-key">LTP</span><span class="chip-val">₹${fmt(val)}</span></span>`;
+    }
+    const numVal  = typeof val === 'number' ? val : null;
+    const posNeg  = numVal !== null ? (numVal > 0 ? 'pos-chip' : numVal < 0 ? 'neg-chip' : '') : '';
+    const display = numVal !== null ? fmt(numVal, 2) : escHtml(String(val));
+    return `<span class="indicator-chip ${posNeg}"><span class="chip-key">${escHtml(key)}</span><span class="chip-val">${display}</span></span>`;
+  }).join('');
+  const inner = `<span style="font-size:11px;color:var(--text-muted);margin-right:4px">Live:</span>${chips}`;
+  // Update both the Strategies tab strip and the Options tab strip (same strategy, different prefixes)
+  for (const pfx of ['indicator-strip-', 'opt-indicator-strip-']) {
+    const strip = document.getElementById(`${pfx}${strategyId}`);
+    if (strip) { strip.style.display = 'flex'; strip.innerHTML = inner; }
+  }
 }
 
 /* ======================================================================= */

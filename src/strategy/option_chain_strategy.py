@@ -2,6 +2,7 @@
 
 from abc import abstractmethod
 from typing import Any
+import time
 
 import pandas as pd
 
@@ -55,6 +56,13 @@ class OptionChainStrategy(BaseStrategy):
         self.product_type = product_type
         self.chain_fetcher: OptionChainFetcher | None = None
 
+        # Caches to respect the Dhan API 3-second rate limit
+        self._expiry_cache: list[str] = []
+        self._expiry_cache_ts: float = 0.0
+        self._chain_cache: pd.DataFrame = pd.DataFrame()
+        self._chain_cache_ts: float = 0.0
+        self._chain_cache_expiry: str = ""
+
     def attach_broker(self, broker: Any) -> None:
         """Attach a broker and create the associated OptionChainFetcher."""
         super().attach_broker(broker)
@@ -63,15 +71,90 @@ class OptionChainStrategy(BaseStrategy):
     def _get_nearest_expiry(self) -> str:
         """Return the nearest available expiry date for the underlying.
 
+        Results are cached for 60 seconds to avoid hammering the API.
         Returns an empty string when no expiry list is available.
         """
         if self.chain_fetcher is None:
             return ""
-        expiries = self.chain_fetcher.get_expiry_list(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
+        now = time.monotonic()
+        if not self._expiry_cache or now - self._expiry_cache_ts > 60.0:
+            expiries = self.chain_fetcher.get_expiry_list(
+                under_security_id=self.under_security_id,
+                under_exchange_segment=self.under_exchange_segment,
+            )
+            self._expiry_cache = expiries
+            self._expiry_cache_ts = now
+        return self._expiry_cache[0] if self._expiry_cache else ""
+
+    def _get_chain_with_fallback(
+        self,
+        cache_seconds: float = 5.0,
+        max_tries: int = 3,
+    ) -> tuple[str, pd.DataFrame]:
+        """Fetch option chain with rate-limit-safe caching and expiry fallback.
+
+        The Dhan API allows **one** option chain request every 3 seconds.
+        This method caches the last successful chain for *cache_seconds* and
+        skips the network call when the cache is still fresh.  If the first
+        expiry returns an empty chain (e.g. because the API returned an error
+        or the contract rolled), it retries with up to *max_tries* expiries.
+
+        Returns
+        -------
+        tuple[str, pd.DataFrame]
+            ``(expiry_str, chain_dataframe)`` – both empty when no data could
+            be fetched.
+        """
+        if self.chain_fetcher is None:
+            return "", pd.DataFrame()
+
+        now = time.monotonic()
+
+        # Return cached chain if it is still fresh
+        if (
+            not self._chain_cache.empty
+            and self._chain_cache_expiry
+            and now - self._chain_cache_ts < cache_seconds
+        ):
+            return self._chain_cache_expiry, self._chain_cache
+
+        # Refresh expiry list (cached for 60 s)
+        if not self._expiry_cache or now - self._expiry_cache_ts > 60.0:
+            expiries = self.chain_fetcher.get_expiry_list(
+                under_security_id=self.under_security_id,
+                under_exchange_segment=self.under_exchange_segment,
+            )
+            self._expiry_cache = expiries
+            self._expiry_cache_ts = now
+
+        if not self._expiry_cache:
+            logger.warning("%s: no expiry dates available for under_id=%s seg=%s",
+                           self.name, self.under_security_id, self.under_exchange_segment)
+            return "", pd.DataFrame()
+
+        # Try each expiry until we get a non-empty chain
+        for expiry in self._expiry_cache[:max_tries]:
+            chain = self.chain_fetcher.get_option_chain(
+                under_security_id=self.under_security_id,
+                under_exchange_segment=self.under_exchange_segment,
+                expiry=expiry,
+            )
+            if not chain.empty:
+                self._chain_cache = chain
+                self._chain_cache_ts = now
+                self._chain_cache_expiry = expiry
+                return expiry, chain
+            logger.warning(
+                "%s: empty chain for expiry %s (under_id=%s seg=%s) — trying next expiry",
+                self.name, expiry, self.under_security_id, self.under_exchange_segment,
+            )
+
+        logger.error(
+            "%s: could not fetch a non-empty option chain after trying %d expir%s",
+            self.name, min(max_tries, len(self._expiry_cache)),
+            "y" if min(max_tries, len(self._expiry_cache)) == 1 else "ies",
         )
-        return expiries[0] if expiries else ""
+        return "", pd.DataFrame()
 
     def _make_option_signal(
         self,
@@ -91,6 +174,8 @@ class OptionChainStrategy(BaseStrategy):
             "price": price,
             "order_type": "MARKET",
             "product_type": self.product_type,
+            "option_type": option_type,
+            "strike": strike,
         }
 
     def _get_otm_strike(
@@ -215,16 +300,7 @@ class ShortStraddleStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            logger.warning("%s: could not determine expiry date.", self.name)
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -352,15 +428,7 @@ class PCRStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -473,16 +541,7 @@ class LongStraddleStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            logger.warning("%s: could not determine expiry date.", self.name)
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -576,16 +635,7 @@ class LongStrangleStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            logger.warning("%s: could not determine expiry date.", self.name)
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -693,15 +743,7 @@ class BullCallSpreadStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -805,15 +847,7 @@ class BearPutSpreadStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -921,15 +955,7 @@ class BullPutSpreadStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -1032,15 +1058,7 @@ class BearCallSpreadStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -1160,15 +1178,7 @@ class IronCondorStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 
@@ -1294,15 +1304,7 @@ class IronButterflyStrategy(OptionChainStrategy):
             )
             return None
 
-        expiry = self._get_nearest_expiry()
-        if not expiry:
-            return None
-
-        chain = self.chain_fetcher.get_option_chain(
-            under_security_id=self.under_security_id,
-            under_exchange_segment=self.under_exchange_segment,
-            expiry=expiry,
-        )
+        expiry, chain = self._get_chain_with_fallback()
         if chain.empty:
             return None
 

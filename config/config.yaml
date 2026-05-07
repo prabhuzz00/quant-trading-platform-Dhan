@@ -2,10 +2,10 @@
 
 broker:
   client_id: "1100861970"       # Set via DHAN_CLIENT_ID environment variable
-  access_token: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzc3OTYwMDE5LCJpYXQiOjE3Nzc4NzM2MTksInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTAwODYxOTcwIn0.6s90qeMrGRmY1QfD_E6Cvww7ExyJiqE8LZ_Kt2v7OhvWvJH2ogS_rw4bwNcK76CAvxaqQbf9p8TNxhVZRk2xrQ"    # Set via DHAN_ACCESS_TOKEN environment variable
+  access_token: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzc4MjU4MTg3LCJpYXQiOjE3NzgxNzE3ODcsInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTAwODYxOTcwIn0.4SejQQ30q7TrZjmueJYhV8afaWWrEbZ2IqEtMlpMCmtipyAGsiZKxT3C40Ai83CWRz2amF27ISgq1m40GKpQ2A"    # Set via DHAN_ACCESS_TOKEN environment variable
 
 trading:
-  paper_trade: true   # Set to false for live trading
+  paper_trade: false   # Set to false for live trading
   default_exchange: NSE
   default_product_type: INTRADAY
   default_order_type: LIMIT

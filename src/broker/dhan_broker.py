@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,21 @@ logger = get_logger(__name__)
 
 # Credentials file written by the dashboard Credentials UI
 _CREDENTIALS_FILE = Path(__file__).resolve().parent.parent.parent / "dashboard" / "data" / "credentials.json"
+
+# Rate-limit repeated get_ltp warnings: only log once per 60 s per security
+_ltp_warn_at: dict[str, float] = {}
+
+# Maps exchange segment → instrument_type used by intraday_minute_data
+_SEGMENT_TO_INSTRUMENT: dict[str, str] = {
+    "MCX_COMM":     "FUTCOM",
+    "IDX_I":        "INDEX",
+    "NSE_EQ":       "EQUITY",
+    "BSE_EQ":       "EQUITY",
+    "NSE_FNO":      "FUTSTK",
+    "BSE_FNO":      "FUTSTK",
+    "NSE_CURRENCY": "FUTCUR",
+    "BSE_CURRENCY": "FUTCUR",
+}
 
 
 class DhanBroker:
@@ -161,6 +177,12 @@ class DhanBroker:
                 price=price,
             )
 
+        logger.info(
+            "place_order payload → security_id=%s  exchange_segment=%s  "
+            "transaction_type=%s  quantity=%s  order_type=%s  product_type=%s  price=%s",
+            security_id, exchange_segment, transaction_type,
+            quantity, order_type, product_type, price,
+        )
         response = self._dhan.place_order(
             security_id=security_id,
             exchange_segment=exchange_segment,
@@ -171,7 +193,22 @@ class DhanBroker:
             price=price,
             trigger_price=trigger_price,
         )
-        logger.info("Order placed: %s", response)
+        logger.info("Order response: %s", response)
+
+        # dhanhq returns {'status': 'success'|'failure', 'remarks': ..., 'data': ...}
+        if response.get("status") != "success":
+            remarks = response.get("remarks", {})
+            if isinstance(remarks, dict):
+                msg = remarks.get("error_message") or remarks.get("error_type") or str(remarks)
+            else:
+                msg = str(remarks) or "Unknown error"
+            raise RuntimeError(f"Dhan rejected order: {msg}")
+
+        # Normalise so callers can always use response["order_id"]
+        data = response.get("data") or {}
+        if isinstance(data, dict) and "orderId" in data:
+            response["order_id"] = data["orderId"]
+
         return response
 
     def place_option_order(
@@ -309,22 +346,113 @@ class DhanBroker:
     def get_ltp(self, security_id: str, exchange_segment: str) -> float:
         """Return the last traded price for a security via the Dhan REST API.
 
-        Returns ``0.0`` when no API connection is available.
+        Tries three methods in order:
+        1. ``ticker_data``       — LTP market feed (fastest)
+        2. ``ohlc_data``         — OHLC snapshot (fallback when LTP feed is unavailable)
+        3. ``intraday_minute_data`` — last 1-min candle close (fallback for MCX / F&O)
+
+        Returns ``0.0`` when no API connection is available or all methods fail.
         """
         if self._dhan is None:
             return 0.0
 
+        def _throttled_warn(msg: str) -> None:
+            """Log *msg* at WARNING level at most once every 60 s per security."""
+            key = f"{security_id}:{exchange_segment}"
+            now = time.monotonic()
+            if now - _ltp_warn_at.get(key, 0.0) >= 60.0:
+                _ltp_warn_at[key] = now
+                logger.warning(msg)
+
+        def _price_from_records(records: list, source: str) -> float:
+            """Extract LTP from a list of market-data records."""
+            if not records:
+                return 0.0
+            rec = records[0]
+            price = float(rec.get("last_price") or rec.get("close") or 0.0)
+            if price > 0:
+                logger.debug("get_ltp [%s] %s/%s → %.2f", source, security_id, exchange_segment, price)
+            return price
+
+        # ------------------------------------------------------------------ #
+        # Method 1: ticker_data (LTP feed)                                   #
+        # ------------------------------------------------------------------ #
         try:
             response = self._dhan.ticker_data(
                 securities={exchange_segment: [int(security_id)]}
             )
-            data = response.get("data", {})
-            # ticker_data returns a list of records under the segment key
-            records = data.get(exchange_segment, [])
-            if records:
-                return float(records[0].get("last_price", 0.0))
+            if isinstance(response, dict):
+                data = response.get("data", {})
+                if isinstance(data, dict):
+                    price = _price_from_records(data.get(exchange_segment, []), "ticker")
+                    if price > 0:
+                        return price
+                    # data dict present but empty → segment name mismatch, try other keys
+                    for records in data.values():
+                        if isinstance(records, list):
+                            price = _price_from_records(records, "ticker-alt")
+                            if price > 0:
+                                return price
+                # data is not a dict (e.g. '' on API error) → fall through to next method
         except Exception as exc:
-            logger.warning("get_ltp failed for %s: %s", security_id, exc)
+            logger.debug("get_ltp ticker_data exception for %s/%s: %s", security_id, exchange_segment, exc)
+
+        # ------------------------------------------------------------------ #
+        # Method 2: ohlc_data (snapshot)                                     #
+        # ------------------------------------------------------------------ #
+        try:
+            response = self._dhan.ohlc_data(
+                securities={exchange_segment: [int(security_id)]}
+            )
+            if isinstance(response, dict):
+                data = response.get("data", {})
+                if isinstance(data, dict):
+                    price = _price_from_records(data.get(exchange_segment, []), "ohlc")
+                    if price > 0:
+                        return price
+                    for records in data.values():
+                        if isinstance(records, list):
+                            price = _price_from_records(records, "ohlc-alt")
+                            if price > 0:
+                                return price
+        except Exception as exc:
+            logger.debug("get_ltp ohlc_data exception for %s/%s: %s", security_id, exchange_segment, exc)
+
+        # ------------------------------------------------------------------ #
+        # Method 3: intraday_minute_data — last 1-min candle close           #
+        # Used by regime_finder for MCX/INDEX; works when feed APIs fail.    #
+        # ------------------------------------------------------------------ #
+        instrument_type = _SEGMENT_TO_INSTRUMENT.get(exchange_segment, "EQUITY")
+        try:
+            import datetime as _dt
+            today = _dt.date.today().isoformat()
+            response = self._dhan.intraday_minute_data(
+                security_id=security_id,
+                exchange_segment=exchange_segment,
+                instrument_type=instrument_type,
+                from_date=today,
+                to_date=today,
+                interval=1,
+            )
+            if isinstance(response, dict):
+                data = response.get("data", {})
+                if isinstance(data, dict):
+                    closes = data.get("close", [])
+                    if closes:
+                        price = float(closes[-1])
+                        if price > 0:
+                            logger.debug(
+                                "get_ltp [intraday] %s/%s → %.2f (last candle close)",
+                                security_id, exchange_segment, price,
+                            )
+                            return price
+        except Exception as exc:
+            logger.debug("get_ltp intraday exception for %s/%s: %s", security_id, exchange_segment, exc)
+
+        _throttled_warn(
+            f"get_ltp: all methods failed for {security_id} ({exchange_segment} / {instrument_type}) "
+            "— check credentials, market hours, and subscription"
+        )
         return 0.0
 
     def get_market_quote(
@@ -519,17 +647,115 @@ class DhanBroker:
                     type(response).__name__, under_exchange_segment, response,
                 )
                 return {}
-            # dhanhq >= 2.x: actual chain data is at response["data"]["data"]
+            # dhanhq >= 2.x wraps server JSON in {"status":…, "data": <server_json>}.
+            # The server JSON is {"data": {"last_price":…, "oc":{…}}, "status":"success"}.
+            # So the actual chain data is at response["data"]["data"].
             outer = response.get("data", {})
             if not isinstance(outer, dict):
-                logger.warning("Unexpected option chain outer type: %s", type(outer))
+                logger.warning(
+                    "get_option_chain: outer 'data' is %s (expected dict) for "
+                    "under_id=%s expiry=%s — full response: %s",
+                    type(outer).__name__, under_security_id, expiry, response,
+                )
                 return {}
             inner = outer.get("data", None)
             if isinstance(inner, dict):
+                # Detect API-level error inside a 200 response
+                if inner.get("status") not in (None, "success", "SUCCESS"):
+                    logger.warning(
+                        "get_option_chain: API error in inner data for "
+                        "under_id=%s expiry=%s: %s",
+                        under_security_id, expiry, inner,
+                    )
+                    return {}
                 return inner
-            # Fallback for older SDK versions
+            # Fallback: outer IS the chain dict (older SDK or different wrapping)
+            if not outer.get("oc") and not outer.get("oc_data"):
+                logger.warning(
+                    "get_option_chain: unrecognised response structure for "
+                    "under_id=%s expiry=%s — outer keys: %s",
+                    under_security_id, expiry, list(outer.keys()),
+                )
+                return {}
             return outer
         except Exception as exc:
             logger.warning("get_option_chain failed: %s", exc)
             return {}
+
+
+# ---------------------------------------------------------------------------
+# Standalone utility — MCX Crude Oil contract auto-detection
+# ---------------------------------------------------------------------------
+
+_SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
+
+
+def detect_crude_futures_security_id() -> dict | None:
+    """Download Dhan's instrument master CSV and return the near-month MCX Crude Oil
+    FUTCOM contract details, or ``None`` on failure.
+
+    Returns a dict with keys:
+        security_id  – Dhan security ID string for the near-month futures contract
+        expiry       – ISO date string, e.g. "2026-06-17"
+        display_name – Human-readable label, e.g. "CRUDEOIL JUN FUT"
+    """
+    import csv
+    import datetime
+    import io
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            _SCRIP_MASTER_URL,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            raw = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Scrip master download failed: %s", exc)
+        return None
+
+    today = datetime.date.today()
+    best: dict | None = None
+    try:
+        reader = csv.DictReader(io.StringIO(raw))
+        for row in reader:
+            if row.get("SEM_EXM_EXCH_ID", "").strip() != "MCX":
+                continue
+            if row.get("SEM_INSTRUMENT_NAME", "").strip() != "FUTCOM":
+                continue
+            sym = row.get("SM_SYMBOL_NAME", "").strip().upper()
+            trd = row.get("SEM_TRADING_SYMBOL", "").strip().upper()
+            if "CRUDE" not in sym and "CRUDE" not in trd:
+                continue
+            exp_str = row.get("SEM_EXPIRY_DATE", "").strip()[:10]
+            try:
+                exp_date = datetime.date.fromisoformat(exp_str)
+            except ValueError:
+                continue
+            if exp_date < today:
+                continue
+            if best is None or exp_date < best["exp_date"]:
+                best = {
+                    "security_id":  row.get("SEM_SMST_SECURITY_ID", "").strip(),
+                    "expiry":       exp_date.isoformat(),
+                    "exp_date":     exp_date,
+                    "display_name": (
+                        row.get("SEM_CUSTOM_SYMBOL", "").strip()
+                        or trd
+                    ),
+                }
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Scrip master parse failed: %s", exc)
+        return None
+
+    if not best or not best["security_id"]:
+        logger.warning("No active MCX CRUDEOIL FUTCOM found in instrument master.")
+        return None
+
+    return {
+        "security_id":  best["security_id"],
+        "expiry":       best["expiry"],
+        "display_name": best["display_name"],
+    }
 

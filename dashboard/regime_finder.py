@@ -108,7 +108,7 @@ class RegimeFinder:
     def get_regime_details(self) -> dict:
         """Return a dict with all indicator values and the regime label."""
         n = len(self._closes)
-        if n < 10:
+        if n < 30:
             return {
                 "regime": UNKNOWN,
                 "ema20": 0.0, "ema50": 0.0,
@@ -188,39 +188,63 @@ class RegimeFinder:
         return sum(trs[-period:]) / period
 
     def _adx(self, period: int = 14) -> float:
-        """Simplified ADX approximation using the DM method."""
+        """ADX using Wilder's smoothing method."""
         closes = self._closes
         highs  = self._highs
         lows   = self._lows
         n = len(closes)
-        if n < period + 2:
+        if n < period * 2 + 1:
             return 0.0
-        plus_dm_list:  list[float] = []
-        minus_dm_list: list[float] = []
-        tr_list:       list[float] = []
+
+        tr_list: list[float] = []
+        pdm_list: list[float] = []
+        mdm_list: list[float] = []
         for i in range(1, n):
-            up_move   = highs[i]  - highs[i - 1]
+            up_move   = highs[i] - highs[i - 1]
             down_move = lows[i - 1] - lows[i]
-            plus_dm_list.append(max(up_move,   0) if up_move   > down_move else 0)
-            minus_dm_list.append(max(down_move, 0) if down_move > up_move   else 0)
             tr_list.append(max(
                 highs[i] - lows[i],
-                abs(highs[i]  - closes[i - 1]),
-                abs(lows[i]   - closes[i - 1]),
+                abs(highs[i] - closes[i - 1]),
+                abs(lows[i]  - closes[i - 1]),
             ))
+            pdm_list.append(up_move   if up_move > down_move and up_move > 0   else 0.0)
+            mdm_list.append(down_move if down_move > up_move and down_move > 0 else 0.0)
 
-        # Smooth with simple average over last `period` values
-        p = min(period, len(tr_list))
-        atr_s   = sum(tr_list[-p:])   / p
-        pdm_s   = sum(plus_dm_list[-p:])  / p
-        mdm_s   = sum(minus_dm_list[-p:]) / p
+        def _wilder_sum(values: list[float], p: int) -> list[float]:
+            """Wilder smoothing keeping scale of raw values (ATR/DM variant)."""
+            if len(values) < p:
+                return []
+            result = [sum(values[:p])]
+            for v in values[p:]:
+                result.append(result[-1] - result[-1] / p + v)
+            return result
 
-        if atr_s == 0:
+        def _wilder_avg(values: list[float], p: int) -> list[float]:
+            """Wilder smoothing using initial average (DX/ADX variant)."""
+            if len(values) < p:
+                return []
+            result = [sum(values[:p]) / p]
+            for v in values[p:]:
+                result.append(result[-1] - result[-1] / p + v / p)
+            return result
+
+        str14  = _wilder_sum(tr_list,  period)
+        spdm14 = _wilder_sum(pdm_list, period)
+        smdm14 = _wilder_sum(mdm_list, period)
+
+        dx_list: list[float] = []
+        for s, pdm, mdm in zip(str14, spdm14, smdm14):
+            if s == 0:
+                dx_list.append(0.0)
+                continue
+            pdi = pdm / s * 100
+            mdi = mdm / s * 100
+            dx_list.append(abs(pdi - mdi) / (pdi + mdi) * 100 if (pdi + mdi) else 0.0)
+
+        if not dx_list:
             return 0.0
-        pdi = pdm_s / atr_s * 100
-        mdi = mdm_s / atr_s * 100
-        dx  = abs(pdi - mdi) / (pdi + mdi) * 100 if (pdi + mdi) else 0.0
-        return dx
+        adx_list = _wilder_avg(dx_list, period)
+        return min(100.0, adx_list[-1]) if adx_list else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +290,7 @@ def auto_refresh_crude_regime(
     broker: object,
     security_id: str = "488290",
     exchange_segment: str = "MCX_COMM",
-    n_bars: int = 15,
+    n_bars: int = 100,
 ) -> dict:
     """Fetch recent Crude Oil Futures 1-minute bars and re-seed the Crude finder.
 
@@ -323,7 +347,7 @@ def auto_refresh_crude_regime(
 
 
 
-def auto_refresh_regime(broker: object, n_bars: int = 15) -> dict:
+def auto_refresh_regime(broker: object, n_bars: int = 100) -> dict:
     """Fetch recent NIFTY50 1-minute bars and re-seed the regime finder.
 
     Uses ``security_id="13"`` (NIFTY50 index) with ``exchange_segment="IDX_I"``

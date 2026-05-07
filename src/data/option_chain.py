@@ -139,6 +139,14 @@ class OptionChainFetcher:
             )
             return pd.DataFrame()
 
+        # Detect API-level error responses (e.g. rate-limit, auth failure)
+        if isinstance(raw, dict) and raw.get("status") not in (None, "success", "SUCCESS"):
+            logger.warning(
+                "Option chain API error for security_id=%s expiry=%s: %s",
+                under_security_id, expiry, raw,
+            )
+            return pd.DataFrame()
+
         # Cache spot price so get_spot_price() doesn't need a second API call
         self._last_spot_price = float(raw.get("last_price", 0.0))
 

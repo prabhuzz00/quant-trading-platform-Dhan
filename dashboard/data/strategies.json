@@ -86,7 +86,8 @@
       "slow_period": 21,
       "quantity": 1,
       "product_type": "INTRADAY"
-    }
+    },
+    "regime_override": true
   },
   "iron_butterfly": {
     "enabled": false,
@@ -149,7 +150,7 @@
     }
   },
   "ema_crossover_crude": {
-    "enabled": true,
+    "enabled": false,
     "params": {
       "under_security_id": 488290,
       "under_exchange_segment": "MCX_COMM",
@@ -160,5 +161,120 @@
       "product_type": "INTRADAY"
     },
     "regime_override": null
+  },
+  "macd_crossover_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "fast_period": 12,
+      "slow_period": 26,
+      "signal_period": 9,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "rsi_reversal_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "rsi_period": 14,
+      "oversold": 30.0,
+      "overbought": 70.0,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "bollinger_breakout_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "period": 20,
+      "std_dev": 2.0,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "hull_ma_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "period": 21,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "dema_crossover_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "fast_period": 9,
+      "slow_period": 21,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "stoch_rsi_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "rsi_period": 14,
+      "stoch_period": 14,
+      "smooth_k": 3,
+      "oversold": 20.0,
+      "overbought": 80.0,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "triple_ema_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "fast_period": 5,
+      "mid_period": 13,
+      "slow_period": 21,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "momentum_roc_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "roc_period": 10,
+      "roc_threshold": 0.5,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "price_channel_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "period": 20,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
+  },
+  "volatility_squeeze_nifty": {
+    "enabled": true,
+    "params": {
+      "under_security_id": 13,
+      "under_exchange_segment": "IDX_I",
+      "period": 20,
+      "bb_mult": 2.0,
+      "kc_mult": 1.5,
+      "quantity": 1,
+      "product_type": "INTRADAY"
+    }
   }
 }

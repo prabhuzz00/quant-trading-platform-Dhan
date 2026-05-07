@@ -732,6 +732,204 @@ STRATEGY_CATALOG: dict[str, dict] = {
             {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
         ],
     },
+    # -------------------------------------------------------------------------
+    # 10 Option Buying Strategies (NIFTY50 Futures signal → ATM CE/PE buy)
+    # -------------------------------------------------------------------------
+    "macd_crossover_nifty": {
+        "name": "MACD Crossover NIFTY",
+        "type": "Option Buying",
+        "type_color": "blue",
+        "description": (
+            "MACD(12,26,9) crossover on NIFTY50 Futures. "
+            "Golden cross → buy ATM CE; death cross → buy ATM PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "fast_period",   "label": "MACD Fast Period",   "type": "number", "default": 12, "min": 2,  "max": 50,  "step": 1},
+            {"key": "slow_period",   "label": "MACD Slow Period",   "type": "number", "default": 26, "min": 5,  "max": 200, "step": 1},
+            {"key": "signal_period", "label": "Signal Period",      "type": "number", "default": 9,  "min": 2,  "max": 50,  "step": 1},
+            {"key": "quantity",      "label": "Lots per Leg",       "type": "number", "default": 1,  "min": 1,  "max": 50,  "step": 1},
+            {"key": "product_type",  "label": "Product Type",       "type": "text",   "default": "INTRADAY"},
+        ],
+    },
+    "rsi_reversal_nifty": {
+        "name": "RSI Reversal NIFTY",
+        "type": "Option Buying",
+        "type_color": "purple",
+        "description": (
+            "RSI(14) on NIFTY50 Futures. "
+            "Crosses back above oversold → buy CE; below overbought → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "rsi_period", "label": "RSI Period", "type": "number", "default": 14, "min": 2, "max": 50, "step": 1},
+            {"key": "oversold",   "label": "Oversold Level",   "type": "number", "default": 30.0, "min": 5,  "max": 49, "step": 1},
+            {"key": "overbought", "label": "Overbought Level", "type": "number", "default": 70.0, "min": 51, "max": 95, "step": 1},
+            {"key": "quantity",   "label": "Lots per Leg",     "type": "number", "default": 1, "min": 1, "max": 50, "step": 1},
+            {"key": "product_type", "label": "Product Type",   "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    "bollinger_breakout_nifty": {
+        "name": "Bollinger Breakout NIFTY",
+        "type": "Option Buying",
+        "type_color": "green",
+        "description": (
+            "BB(20,2σ) on NIFTY50 Futures. "
+            "Price breaks above upper band → buy CE; below lower band → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "period",  "label": "BB Period",         "type": "number", "default": 20,  "min": 5, "max": 200, "step": 1},
+            {"key": "std_dev", "label": "Std Dev Multiplier","type": "number", "default": 2.0, "min": 0.5, "max": 5, "step": 0.5},
+            {"key": "quantity","label": "Lots per Leg",      "type": "number", "default": 1, "min": 1, "max": 50, "step": 1},
+            {"key": "product_type", "label": "Product Type", "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    "momentum_roc_nifty": {
+        "name": "Momentum ROC NIFTY",
+        "type": "Option Buying",
+        "type_color": "orange",
+        "description": (
+            "Rate-of-Change(10) on NIFTY50 Futures. "
+            "ROC > threshold → buy CE; ROC < -threshold → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "roc_period",    "label": "ROC Period (%)",    "type": "number", "default": 10,  "min": 2,  "max": 100, "step": 1},
+            {"key": "roc_threshold", "label": "ROC Threshold (%)", "type": "number", "default": 0.5, "min": 0.1, "max": 5.0, "step": 0.1},
+            {"key": "quantity",      "label": "Lots per Leg",      "type": "number", "default": 1, "min": 1, "max": 50, "step": 1},
+            {"key": "product_type",  "label": "Product Type",      "type": "text", "default": "INTRADAY"},
+        ],
+    },
+    "triple_ema_nifty": {
+        "name": "Triple EMA Trend NIFTY",
+        "type": "Option Buying",
+        "type_color": "blue",
+        "description": (
+            "Three EMAs (5/13/21) on NIFTY50 Futures. "
+            "All aligned bullish → buy CE; all aligned bearish → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "fast_period", "label": "Fast EMA",  "type": "number", "default": 5,  "min": 2,  "max": 20,  "step": 1},
+            {"key": "mid_period",  "label": "Mid EMA",   "type": "number", "default": 13, "min": 5,  "max": 50,  "step": 1},
+            {"key": "slow_period", "label": "Slow EMA",  "type": "number", "default": 21, "min": 10, "max": 200, "step": 1},
+            {"key": "quantity",    "label": "Lots per Leg","type": "number","default": 1, "min": 1, "max": 50,  "step": 1},
+            {"key": "product_type","label": "Product Type","type": "text",  "default": "INTRADAY"},
+        ],
+    },
+    "stoch_rsi_nifty": {
+        "name": "Stoch RSI NIFTY",
+        "type": "Option Buying",
+        "type_color": "purple",
+        "description": (
+            "Stochastic applied to RSI(14) on NIFTY50 Futures. "
+            "StochK crosses out of oversold(20) → CE; out of overbought(80) → PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "rsi_period",   "label": "RSI Period",   "type": "number", "default": 14, "min": 2, "max": 50, "step": 1},
+            {"key": "stoch_period", "label": "Stoch Period", "type": "number", "default": 14, "min": 2, "max": 50, "step": 1},
+            {"key": "smooth_k",     "label": "Smooth K",     "type": "number", "default": 3,  "min": 1, "max": 10, "step": 1},
+            {"key": "oversold",     "label": "Oversold",     "type": "number", "default": 20.0,"min": 5, "max": 49, "step": 1},
+            {"key": "overbought",   "label": "Overbought",   "type": "number", "default": 80.0,"min": 51,"max": 95, "step": 1},
+            {"key": "quantity",     "label": "Lots per Leg", "type": "number", "default": 1, "min": 1, "max": 50, "step": 1},
+            {"key": "product_type", "label": "Product Type", "type": "text",   "default": "INTRADAY"},
+        ],
+    },
+    "dema_crossover_nifty": {
+        "name": "DEMA Crossover NIFTY",
+        "type": "Option Buying",
+        "type_color": "green",
+        "description": (
+            "Double-EMA(9/21) crossover on NIFTY50 Futures. "
+            "DEMA9 crosses DEMA21 bullish → buy CE; bearish → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "fast_period", "label": "Fast DEMA", "type": "number", "default": 9,  "min": 2,  "max": 50,  "step": 1},
+            {"key": "slow_period", "label": "Slow DEMA", "type": "number", "default": 21, "min": 5,  "max": 200, "step": 1},
+            {"key": "quantity",    "label": "Lots per Leg","type": "number","default": 1, "min": 1,  "max": 50,  "step": 1},
+            {"key": "product_type","label": "Product Type","type": "text",  "default": "INTRADAY"},
+        ],
+    },
+    "hull_ma_nifty": {
+        "name": "Hull MA Flip NIFTY",
+        "type": "Option Buying",
+        "type_color": "orange",
+        "description": (
+            "Hull Moving Average(21) slope flip on NIFTY50 Futures. "
+            "HMA slope turns positive → buy CE; negative → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "period",      "label": "HMA Period",   "type": "number", "default": 21, "min": 5,  "max": 200, "step": 1},
+            {"key": "quantity",    "label": "Lots per Leg", "type": "number", "default": 1,  "min": 1,  "max": 50,  "step": 1},
+            {"key": "product_type","label": "Product Type", "type": "text",   "default": "INTRADAY"},
+        ],
+    },
+    "price_channel_nifty": {
+        "name": "Price Channel Breakout NIFTY",
+        "type": "Option Buying",
+        "type_color": "blue",
+        "description": (
+            "N-bar (20) channel breakout on NIFTY50 Futures. "
+            "Price breaks above channel high → buy CE; below channel low → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "period",      "label": "Channel Period","type": "number", "default": 20, "min": 5,  "max": 200, "step": 1},
+            {"key": "quantity",    "label": "Lots per Leg", "type": "number", "default": 1,  "min": 1,  "max": 50,  "step": 1},
+            {"key": "product_type","label": "Product Type", "type": "text",   "default": "INTRADAY"},
+        ],
+    },
+    "volatility_squeeze_nifty": {
+        "name": "Volatility Squeeze NIFTY",
+        "type": "Option Buying",
+        "type_color": "purple",
+        "description": (
+            "BB-inside-KC volatility squeeze on NIFTY50 Futures. "
+            "When squeeze releases: bullish → buy CE; bearish → buy PE."
+        ),
+        "asset_type": "options",
+        "regime_controlled": True,
+        "param_schema": [
+            {"key": "under_security_id", "label": "Underlying Security ID", "type": "number", "default": 13, "min": 1, "max": 99999, "step": 1},
+            {"key": "under_exchange_segment", "label": "Underlying Segment", "type": "text", "default": "IDX_I"},
+            {"key": "period",      "label": "Period",         "type": "number", "default": 20,  "min": 5,  "max": 100, "step": 1},
+            {"key": "bb_mult",     "label": "BB Multiplier",  "type": "number", "default": 2.0, "min": 0.5, "max": 5.0, "step": 0.5},
+            {"key": "kc_mult",     "label": "KC Multiplier",  "type": "number", "default": 1.5, "min": 0.5, "max": 5.0, "step": 0.5},
+            {"key": "quantity",    "label": "Lots per Leg",   "type": "number", "default": 1,   "min": 1,  "max": 50,  "step": 1},
+            {"key": "product_type","label": "Product Type",   "type": "text",   "default": "INTRADAY"},
+        ],
+    },
 }
 
 
@@ -980,6 +1178,96 @@ def build_strategy_instance(strategy_id: str, params: dict) -> Any:
             quantity=int(params.get("quantity", 1)),
             product_type=str(params.get("product_type", "INTRADAY")),
         )
+
+    # ---- 10 Option Buying Strategies ----------------------------------------
+    from src.strategy.option_buying_strategies import (  # noqa: PLC0415
+        MACDCrossoverStrategy, RSIReversalStrategy, BollingerBreakoutStrategy,
+        MomentumROCStrategy, TripleEMATrendStrategy, StochRSICrossoverStrategy,
+        DEMACrossoverStrategy, HullMAFlipStrategy, PriceChannelBreakoutStrategy,
+        VolatilitySqueezeStrategy,
+    )
+
+    _uid  = int(params.get("under_security_id", 13))
+    _ues  = str(params.get("under_exchange_segment", "IDX_I"))
+    _qty  = int(params.get("quantity", 1))
+    _pt   = str(params.get("product_type", "INTRADAY"))
+
+    if strategy_id == "macd_crossover_nifty":
+        return MACDCrossoverStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            fast_period=int(params.get("fast_period", 12)),
+            slow_period=int(params.get("slow_period", 26)),
+            signal_period=int(params.get("signal_period", 9)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "rsi_reversal_nifty":
+        return RSIReversalStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            rsi_period=int(params.get("rsi_period", 14)),
+            oversold=float(params.get("oversold", 30.0)),
+            overbought=float(params.get("overbought", 70.0)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "bollinger_breakout_nifty":
+        return BollingerBreakoutStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            period=int(params.get("period", 20)),
+            std_dev=float(params.get("std_dev", 2.0)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "momentum_roc_nifty":
+        return MomentumROCStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            roc_period=int(params.get("roc_period", 10)),
+            roc_threshold=float(params.get("roc_threshold", 0.5)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "triple_ema_nifty":
+        return TripleEMATrendStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            fast_period=int(params.get("fast_period", 5)),
+            mid_period=int(params.get("mid_period", 13)),
+            slow_period=int(params.get("slow_period", 21)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "stoch_rsi_nifty":
+        return StochRSICrossoverStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            rsi_period=int(params.get("rsi_period", 14)),
+            stoch_period=int(params.get("stoch_period", 14)),
+            smooth_k=int(params.get("smooth_k", 3)),
+            oversold=float(params.get("oversold", 20.0)),
+            overbought=float(params.get("overbought", 80.0)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "dema_crossover_nifty":
+        return DEMACrossoverStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            fast_period=int(params.get("fast_period", 9)),
+            slow_period=int(params.get("slow_period", 21)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "hull_ma_nifty":
+        return HullMAFlipStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            period=int(params.get("period", 21)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "price_channel_nifty":
+        return PriceChannelBreakoutStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            period=int(params.get("period", 20)),
+            quantity=_qty, product_type=_pt,
+        )
+    if strategy_id == "volatility_squeeze_nifty":
+        return VolatilitySqueezeStrategy(
+            under_security_id=_uid, under_exchange_segment=_ues,
+            period=int(params.get("period", 20)),
+            bb_mult=float(params.get("bb_mult", 2.0)),
+            kc_mult=float(params.get("kc_mult", 1.5)),
+            quantity=_qty, product_type=_pt,
+        )
+
     return None
 
 

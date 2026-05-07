@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 _engine: TradingEngine | None = None
 _engine_lock = threading.Lock()
 
+# Throttle crude auto-detection: only attempt once per 5 minutes per strategy
+_crude_autodetect_at: dict[str, float] = {}
+_CRUDE_AUTODETECT_COOLDOWN = 300  # seconds
+
 
 def get_engine() -> "TradingEngine":
     """Return the process-wide singleton :class:`TradingEngine`."""
@@ -57,8 +61,8 @@ class TradingEngine:
         engine.stop()
     """
 
-    #: Polling interval in seconds (one minute by default = 1-min timeframe)
-    TICK_INTERVAL: int = 60
+    #: Polling interval in seconds – 1 s for real-time price updates
+    TICK_INTERVAL: int = 1
 
     def __init__(self) -> None:
         self._thread: threading.Thread | None = None
@@ -155,8 +159,18 @@ class TradingEngine:
             get_all_strategies,
         )
         from dashboard.regime_finder import auto_refresh_regime, auto_refresh_crude_regime
+        from dashboard import market_feed as _mf
 
         broker = self._broker
+
+        def _ltp(sec_id: str, seg: str) -> float:
+            """Get LTP: WebSocket cache first, REST fallback."""
+            price = _mf.get_ltp(sec_id, seg)
+            if price > 0:
+                return price
+            if broker is not None and broker._dhan is not None:
+                return broker.get_ltp(sec_id, seg)
+            return 0.0
 
         # ---- Auto-refresh NIFTY50 regime ----
         if broker is not None and broker._dhan is not None:
@@ -166,10 +180,8 @@ class TradingEngine:
                 logger.warning("NIFTY regime refresh failed: %s", exc)
 
         # Fetch NIFTY50 spot price once — reused by all NIFTY option strategies
-        nifty_spot: float = 0.0
-        if broker is not None and broker._dhan is not None:
-            nifty_spot = broker.get_ltp("13", "IDX_I")
-            logger.debug("NIFTY50 spot for this tick: %.2f", nifty_spot)
+        nifty_spot: float = _ltp("13", "IDX_I")
+        logger.debug("NIFTY50 spot for this tick: %.2f", nifty_spot)
 
         for strategy_data in get_all_strategies():
             if not strategy_data.get("enabled", False):
@@ -197,41 +209,88 @@ class TradingEngine:
                 close_price = nifty_spot
                 if close_price <= 0:
                     logger.debug("Skipping %s – no NIFTY50 spot available.", sid)
+                    if hasattr(instance, "_log"):
+                        instance._log("Waiting for NIFTY50 LTP — check Dhan credentials & connection", "debug")
                     continue
                 tick_df = pd.DataFrame({"close": [close_price]})
             elif asset_type == "crude_options":
                 futures_sec_id = str(params.get("futures_security_id", "488290"))
                 futures_seg    = str(params.get("under_exchange_segment", "MCX_COMM"))
-                crude_spot: float = 0.0
-                if broker is not None and broker._dhan is not None:
-                    crude_spot = broker.get_ltp(futures_sec_id, futures_seg)
-                    if crude_spot > 0:
-                        logger.info(
-                            "[CRUDE TICK] %s  sec=%s  LTP=%.2f",
-                            sid, futures_sec_id, crude_spot,
-                        )
-                        # Opportunistically refresh Crude Oil regime using latest price
-                        try:
-                            auto_refresh_crude_regime(
-                                broker,
-                                security_id=futures_sec_id,
-                                exchange_segment=futures_seg,
-                            )
-                        except Exception as exc:  # noqa: BLE001
-                            logger.debug("Crude regime refresh skipped: %s", exc)
+                crude_spot: float = _ltp(futures_sec_id, futures_seg)
+                if crude_spot > 0:
+                    logger.info("[CRUDE TICK] %s  sec=%s  LTP=%.2f", sid, futures_sec_id, crude_spot)
+                    try:
+                        auto_refresh_crude_regime(broker, security_id=futures_sec_id, exchange_segment=futures_seg)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Crude regime refresh skipped: %s", exc)
                 if crude_spot <= 0:
                     logger.info("[CRUDE TICK] %s  sec=%s  no LTP available – skipping tick", sid, futures_sec_id)
+                    # ---- Auto-detect current contract if this one is expired/invalid ----
+                    import time as _time
+                    last_attempt = _crude_autodetect_at.get(sid, 0.0)
+                    if _time.time() - last_attempt >= _CRUDE_AUTODETECT_COOLDOWN:
+                        _crude_autodetect_at[sid] = _time.time()
+                        if hasattr(instance, "_log"):
+                            instance._log(
+                                f"⚙️ sec={futures_sec_id} returned no LTP — auto-detecting current MCX Crude contract …",
+                                "debug",
+                            )
+                        try:
+                            from src.broker.dhan_broker import detect_crude_futures_security_id
+                            from dashboard.strategy_manager import update_params
+                            detected = detect_crude_futures_security_id()
+                            if detected and detected["security_id"] and detected["security_id"] != futures_sec_id:
+                                new_sid = detected["security_id"]
+                                logger.info(
+                                    "[CRUDE AUTO-DETECT] Updated %s: old=%s  new=%s  expiry=%s  name=%s",
+                                    sid, futures_sec_id, new_sid, detected["expiry"], detected["display_name"],
+                                )
+                                update_params(sid, {
+                                    "futures_security_id": new_sid,
+                                    "under_security_id": int(new_sid),
+                                })
+                                self.invalidate_instance(sid)
+                                if hasattr(instance, "_log"):
+                                    instance._log(
+                                        f"✅ Auto-detected new contract: {detected['display_name']}  "
+                                        f"sec={new_sid}  expiry={detected['expiry']} — restarting strategy …",
+                                        "signal",
+                                    )
+                            elif detected and detected["security_id"] == futures_sec_id:
+                                if hasattr(instance, "_log"):
+                                    instance._log(
+                                        f"⚠️ Scrip master confirms sec={futures_sec_id} ({detected['display_name']}) "
+                                        f"is the current contract — LTP failure may be a credentials or API issue",
+                                        "debug",
+                                    )
+                            elif not detected:
+                                if hasattr(instance, "_log"):
+                                    instance._log(
+                                        "❌ Auto-detect failed — check internet connection or Dhan scrip master URL",
+                                        "debug",
+                                    )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("Crude auto-detect error: %s", exc)
+                            if hasattr(instance, "_log"):
+                                instance._log(f"❌ Auto-detect error: {exc}", "debug")
+                    else:
+                        if hasattr(instance, "_log"):
+                            instance._log(
+                                f"Waiting for Crude Oil LTP (sec={futures_sec_id}) — "
+                                f"next auto-detect in {int(_CRUDE_AUTODETECT_COOLDOWN - (_time.time() - last_attempt))}s",
+                                "debug",
+                            )
                     continue
                 tick_df = pd.DataFrame({"close": [crude_spot]})
             else:
                 # Equity: use the strategy symbol's own LTP
                 sec_id = str(params.get("security_id", ""))
                 seg = str(params.get("exchange_segment", "NSE_EQ"))
-                ltp: float = 0.0
-                if broker is not None and broker._dhan is not None and sec_id:
-                    ltp = broker.get_ltp(sec_id, seg)
+                ltp: float = _ltp(sec_id, seg) if sec_id else 0.0
                 if ltp <= 0:
                     logger.debug("Skipping %s – no LTP for security_id=%s.", sid, sec_id)
+                    if hasattr(instance, "_log"):
+                        instance._log(f"Waiting for LTP (security_id={sec_id}, segment={seg}) — check Dhan credentials & connection", "debug")
                     continue
                 tick_df = pd.DataFrame({"close": [ltp]})
 
@@ -253,14 +312,14 @@ class TradingEngine:
                 signal.get("quantity"),
                 float(signal.get("price", 0)),
             )
-            self._execute_signal(sid, strategy_data["name"], signal)
+            self._execute_signal(sid, strategy_data["name"], signal, instance)
 
     # ------------------------------------------------------------------ #
     #  Signal execution                                                    #
     # ------------------------------------------------------------------ #
 
     def _execute_signal(
-        self, strategy_id: str, strategy_name: str, signal: dict
+        self, strategy_id: str, strategy_name: str, signal: dict, instance: Any = None
     ) -> None:
         """Place the order or record a paper trade, then journal it."""
         from dashboard.risk_manager import check_risk_limits
@@ -276,6 +335,14 @@ class TradingEngine:
         order_type = str(signal.get("order_type", "MARKET"))
         product_type = str(signal.get("product_type", "INTRADAY"))
         option_type = str(signal.get("option_type", ""))
+        strike = signal.get("strike", 0.0)
+
+        def _strategy_log(msg: str) -> None:
+            if instance is not None and hasattr(instance, "_log"):
+                try:
+                    instance._log(msg, "signal")
+                except Exception:
+                    pass
 
         # --- risk gate ---
         trade_value = price * quantity
@@ -283,10 +350,12 @@ class TradingEngine:
             strategy_id=strategy_id, trade_value=trade_value
         )
         if not risk_result.get("allowed", True):
+            reason = risk_result.get("reason", "")
             logger.warning(
                 "Risk limit blocked %s signal for %s: %s",
-                action, strategy_id, risk_result.get("reason", ""),
+                action, strategy_id, reason,
             )
+            _strategy_log(f"BLOCKED by risk manager: {reason}")
             return
 
         # --- place order or paper-trade ---
@@ -294,6 +363,10 @@ class TradingEngine:
             logger.info(
                 "[PAPER] %s %s x%d @ %.2f (strategy=%s)",
                 action, symbol, quantity, price, strategy_id,
+            )
+            _strategy_log(
+                f"[PAPER TRADE] {action} {option_type or ''} "
+                f"strike={strike} sec={security_id} x{quantity} @ ₹{price:.2f}"
             )
         else:
             try:
@@ -310,11 +383,24 @@ class TradingEngine:
                     "[LIVE] Placed %s %s x%d for strategy=%s",
                     action, symbol, quantity, strategy_id,
                 )
+                _strategy_log(
+                    f"[LIVE ORDER] {action} {option_type or ''} "
+                    f"strike={strike} sec={security_id} x{quantity} @ ₹{price:.2f}"
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "Order placement failed for %s: %s", strategy_id, exc
                 )
+                _strategy_log(f"ORDER FAILED: {exc}")
                 return
+
+        # --- SL / target from order management settings ---
+        from dashboard.order_manager import get_sl_and_target  # noqa: PLC0415
+        from dashboard.regime_finder import get_current_regime  # noqa: PLC0415
+
+        sl_target = get_sl_and_target(entry_price=price, action=action)
+        sl_price     = sl_target.get("sl_price",     0.0)
+        target_price = sl_target.get("target_price", 0.0)
 
         # --- journal ---
         try:
@@ -328,6 +414,9 @@ class TradingEngine:
                 entry_price=price,
                 option_type=option_type,
                 exchange_segment=exchange_segment,
+                sl_price=sl_price,
+                target_price=target_price,
+                regime=get_current_regime(),
                 notes=f"Auto-trade | {'Paper' if self._paper_trade else 'Live'}",
             )
         except Exception as exc:  # noqa: BLE001
@@ -404,21 +493,33 @@ class TradingEngine:
                     return
                 warm_closes = hist["close"].tail(n_bars).tolist()
 
-            # Feed bars silently (skip the last one — live tick will supply it)
-            saved_position = getattr(instance, "_position", None)
-            for close in warm_closes[:-1]:
-                try:
-                    instance.generate_signals(pd.DataFrame({"close": [float(close)]}))
-                except Exception:  # noqa: BLE001
-                    pass
-            # Restore position so phantom warm-up signals don't leave a stale state
-            if saved_position is not None and hasattr(instance, "_position"):
-                instance._position = saved_position
-
-            logger.info(
-                "[PREWARM] %s  fed %d historical 1-min bars → ready.",
-                strategy_id, len(warm_closes),
-            )
+            # Feed bars directly into _prices (candle-based strategies) or
+            # via generate_signals (legacy indicator strategies).
+            # Direct population avoids the minute-boundary tracker being
+            # confused by rapid historical-data ingestion within a single
+            # real-world minute.
+            if hasattr(instance, "_prices") and hasattr(instance, "_current_minute"):
+                # EMA-style candle-based strategy — populate price history directly
+                for close in warm_closes[:-1]:
+                    instance._prices.append(float(close))
+                logger.info(
+                    "[PREWARM] %s  loaded %d historical candle closes → EMAs primed.",
+                    strategy_id, len(instance._prices),
+                )
+            else:
+                # Legacy/indicator strategy — feed via generate_signals
+                saved_position = getattr(instance, "_position", None)
+                for close in warm_closes[:-1]:
+                    try:
+                        instance.generate_signals(pd.DataFrame({"close": [float(close)]}))
+                    except Exception:  # noqa: BLE001
+                        pass
+                if saved_position is not None and hasattr(instance, "_position"):
+                    instance._position = saved_position
+                logger.info(
+                    "[PREWARM] %s  fed %d historical 1-min bars → ready.",
+                    strategy_id, len(warm_closes),
+                )
 
         except Exception as exc:  # noqa: BLE001
             logger.warning("Pre-warm skipped for %s: %s", strategy_id, exc)
