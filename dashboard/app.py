@@ -649,89 +649,92 @@ def quick_order():
     import logging as _logging  # noqa: PLC0415
     _log = _logging.getLogger(__name__)
 
-    body = request.get_json(silent=True) or {}
-    security_id  = str(body.get("security_id", "")).strip()
-    exchange_seg = str(body.get("exchange_segment", "NSE_FNO")).strip()
-    action       = str(body.get("action", "BUY")).upper()
-    option_type  = str(body.get("option_type", "CE")).upper()
-    strike       = float(body.get("strike", 0))
-    ltp          = float(body.get("ltp", 0))
-    quantity     = max(1, int(body.get("quantity", 1)))
-    product_type = str(body.get("product_type", "INTRADAY")).upper()
+    try:
+        body = request.get_json(silent=True) or {}
+        security_id  = str(body.get("security_id", "")).strip()
+        exchange_seg = str(body.get("exchange_segment", "NSE_FNO")).strip()
+        action       = str(body.get("action", "BUY")).upper()
+        option_type  = str(body.get("option_type", "CE")).upper()
+        strike       = float(body.get("strike") or 0)
+        ltp          = float(body.get("ltp") or 0)
+        quantity     = max(1, int(body.get("quantity") or 1))
+        product_type = str(body.get("product_type", "INTRADAY")).upper()  # noqa: F841
 
-    if not security_id:
-        return jsonify({"error": "security_id is required"}), 400
-    if action not in ("BUY", "SELL"):
-        return jsonify({"error": "action must be BUY or SELL"}), 400
+        if not security_id:
+            return jsonify({"error": "security_id is required"}), 400
+        if action not in ("BUY", "SELL"):
+            return jsonify({"error": "action must be BUY or SELL"}), 400
 
-    # Get current LTP if not supplied
-    if ltp <= 0:
-        try:
-            broker = DhanBroker(paper_trade=True)
-            ltp = broker.get_ltp(security_id, exchange_seg)
-        except Exception as exc:  # noqa: BLE001
-            _log.warning("quick_order: could not fetch LTP for %s: %s", security_id, exc)
+        # Get current LTP if not supplied
+        if ltp <= 0:
+            try:
+                broker = DhanBroker(paper_trade=True)
+                ltp = broker.get_ltp(security_id, exchange_seg)
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("quick_order: could not fetch LTP for %s: %s", security_id, exc)
 
-    price = ltp if ltp > 0 else 0.0
+        price = ltp if ltp > 0 else 0.0
 
-    # Paper trade — no real order placed
-    order_id = None
-    _log.info("quick_order (paper): %s %s qty=%d price=%.2f", action, security_id, quantity, price)
+        # Paper trade — no real order placed
+        _log.info("quick_order (paper): %s %s qty=%d price=%.2f", action, security_id, quantity, price)
 
-    # Record in trade journal so it appears in All Trades
-    symbol_label = f"{int(strike)}{option_type}"
-    if action == "BUY":
-        trade_id_new = record_trade_entry(
-            strategy_id="manual",
-            strategy_name="Manual",
-            symbol=symbol_label,
-            security_id=security_id,
-            action="BUY",
-            quantity=quantity,
-            entry_price=price,
-            option_type=option_type,
-            exchange_segment=exchange_seg,
-        )
-        return jsonify({
-            "status": "ok",
-            "paper_trade": True,
-            "trade_id": trade_id_new,
-            "price": price,
-        })
-    else:
-        # SELL — find the matching open BUY trade and close it
-        open_trades = get_open_trades()
-        matched = next(
-            (t for t in reversed(open_trades)
-             if str(t.get("security_id", "")) == security_id),
-            None,
-        )
-        if matched:
-            record_trade_exit(matched["id"], price)
+        # Record in trade journal so it appears in All Trades
+        symbol_label = f"{int(strike)}{option_type}"
+        if action == "BUY":
+            trade_id_new = record_trade_entry(
+                strategy_id="manual",
+                strategy_name="Manual",
+                symbol=symbol_label,
+                security_id=security_id,
+                action="BUY",
+                quantity=quantity,
+                entry_price=price,
+                option_type=option_type,
+                exchange_segment=exchange_seg,
+            )
             return jsonify({
                 "status": "ok",
                 "paper_trade": True,
-                "closed_trade_id": matched["id"],
+                "trade_id": trade_id_new,
                 "price": price,
             })
-        # No matching open trade — record as a new SELL entry
-        trade_id_new = record_trade_entry(
-            strategy_id="manual",
-            strategy_name="Manual",
-            symbol=symbol_label,
-            security_id=security_id,
-            action="SELL",
-            quantity=quantity,
-            entry_price=price,
-            option_type=option_type,
-            exchange_segment=exchange_seg,
-        )
-        return jsonify({
-            "status": "ok",
-            "paper_trade": True,
-            "trade_id": trade_id_new,
-            "price": price,
-        })
+        else:
+            # SELL — find the matching open BUY trade and close it
+            open_trades = get_open_trades()
+            matched = next(
+                (t for t in reversed(open_trades)
+                 if str(t.get("security_id", "")) == security_id),
+                None,
+            )
+            if matched:
+                record_trade_exit(matched["id"], price)
+                return jsonify({
+                    "status": "ok",
+                    "paper_trade": True,
+                    "closed_trade_id": matched["id"],
+                    "price": price,
+                })
+            # No matching open trade — record as a new SELL entry
+            trade_id_new = record_trade_entry(
+                strategy_id="manual",
+                strategy_name="Manual",
+                symbol=symbol_label,
+                security_id=security_id,
+                action="SELL",
+                quantity=quantity,
+                entry_price=price,
+                option_type=option_type,
+                exchange_segment=exchange_seg,
+            )
+            return jsonify({
+                "status": "ok",
+                "paper_trade": True,
+                "trade_id": trade_id_new,
+                "price": price,
+            })
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("quick_order: unexpected error: %s", exc)
+        return jsonify({"error": f"Order failed: {exc}"}), 500
 
 
 # ---------------------------------------------------------------------------
