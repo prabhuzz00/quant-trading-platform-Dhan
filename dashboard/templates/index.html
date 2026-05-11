@@ -1325,7 +1325,8 @@ async function api(method, path, body) {
   let data;
   try {
     data = await res.json();
-  } catch (_) {
+  } catch (parseError) {
+    console.error('api: non-JSON response', res.status, parseError);
     throw new Error(`HTTP ${res.status}: server returned an unexpected response`);
   }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

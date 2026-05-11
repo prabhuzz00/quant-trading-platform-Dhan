@@ -658,7 +658,6 @@ def quick_order():
         strike       = float(body.get("strike") or 0)
         ltp          = float(body.get("ltp") or 0)
         quantity     = max(1, int(body.get("quantity") or 1))
-        product_type = str(body.get("product_type", "INTRADAY")).upper()  # noqa: F841
 
         if not security_id:
             return jsonify({"error": "security_id is required"}), 400
@@ -734,7 +733,7 @@ def quick_order():
             })
     except Exception as exc:  # noqa: BLE001
         _log.exception("quick_order: unexpected error: %s", exc)
-        return jsonify({"error": f"Order failed: {exc}"}), 500
+        return jsonify({"error": "Order failed due to an unexpected error. Please try again."}), 500
 
 
 # ---------------------------------------------------------------------------
