@@ -10,3 +10,6 @@ build/
 .coverage
 htmlcov/
 dashboard/data/credentials.json
+*.db
+*.db-wal
+*.db-shm
