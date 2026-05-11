@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = (Path(__file__).parent / "data").resolve()
 DB_PATH = DATA_DIR / "trades.db"
 
 _SCHEMA = """
