@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -733,7 +734,13 @@ def quick_order():
             })
     except Exception as exc:  # noqa: BLE001
         _log.exception("quick_order: unexpected error: %s", exc)
-        return jsonify({"error": "Order failed due to an unexpected error. Please try again."}), 500
+        resp: dict = {
+            "error": "Order failed due to an unexpected error. Please try again.",
+            "detail": str(exc),
+        }
+        if app.debug:
+            resp["traceback"] = traceback.format_exc()
+        return jsonify(resp), 500
 
 
 # ---------------------------------------------------------------------------

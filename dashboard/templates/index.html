@@ -1326,10 +1326,14 @@ async function api(method, path, body) {
   try {
     data = await res.json();
   } catch (parseError) {
-    console.error('api: non-JSON response', res.status, parseError);
+    console.error('[api] Non-JSON response', { method, path, status: res.status, parseError });
     throw new Error(`HTTP ${res.status}: server returned an unexpected response`);
   }
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    console.error('[api] Request failed', { method, path, status: res.status, response: data });
+    if (data.traceback) console.error('[api] Server traceback:\n' + data.traceback);
+    throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+  }
   return data;
 }
 
@@ -2683,6 +2687,7 @@ async function submitQuickOrder() {
     toast(`${_qo.action} ${Math.round(_qo.strike)}${_qo.optType} @ ₹${fmt(res.price)}${mode}`, 'success');
     setTimeout(closeQuickOrderModal, 1400);
   } catch(e) {
+    console.error('[submitQuickOrder] Order failed', e);
     status.style.color = 'var(--red)';
     status.textContent = '✕ ' + e.message;
     toast('Order failed: ' + e.message, 'error');
